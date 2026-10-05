@@ -26,9 +26,8 @@ frontend.log
 .DS_Store
 .vscode/
 
-# PhoBERT training checkpoints (~3GB, not needed to run the API — inference
-# is pre-computed and already baked into data/features/articles_features.jsonl).
-# Re-generate by running src/train/train.py if you need to retrain.
+# PhoBERT checkpoints are large. The API reads precomputed predictions from
+# data/outputs/predictions.jsonl after training and inference.
 data/outputs/checkpoints/
 
 # Unused duplicate/old model file (not referenced by any code path)

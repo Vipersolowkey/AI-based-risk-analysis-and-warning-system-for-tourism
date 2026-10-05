@@ -18,7 +18,7 @@ const LocationPinSVG = ({ size = 34, color = "#2563EB" }) => (
   </svg>
 );
 
-export function LandingPage({ onGoToLogin, onGoToRegister }) {
+export function LandingPage({ onGoToLogin }) {
   return (
     <div
       style={{

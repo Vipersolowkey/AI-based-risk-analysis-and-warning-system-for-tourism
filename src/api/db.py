@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
     watched_destination TEXT,
     watched_lat REAL,
     watched_lon REAL,
+    last_alert_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 """
@@ -59,6 +60,9 @@ def init_db() -> None:
     conn = get_conn()
     try:
         conn.executescript(_SCHEMA)
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(push_subscriptions)")}
+        if "last_alert_at" not in columns:
+            conn.execute("ALTER TABLE push_subscriptions ADD COLUMN last_alert_at TEXT")
         conn.commit()
     finally:
         conn.close()
@@ -187,7 +191,13 @@ def save_push_subscription(
                (user_id, endpoint, p256dh, auth, watched_destination, watched_lat, watched_lon)
                VALUES (?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(endpoint) DO UPDATE SET
+                 user_id=excluded.user_id,
                  p256dh=excluded.p256dh, auth=excluded.auth,
+                 last_alert_at=CASE
+                   WHEN push_subscriptions.user_id != excluded.user_id
+                     OR push_subscriptions.watched_lat IS NOT excluded.watched_lat
+                     OR push_subscriptions.watched_lon IS NOT excluded.watched_lon
+                   THEN NULL ELSE push_subscriptions.last_alert_at END,
                  watched_destination=excluded.watched_destination,
                  watched_lat=excluded.watched_lat, watched_lon=excluded.watched_lon""",
             (user_id, endpoint, p256dh, auth, watched_destination, watched_lat, watched_lon),
@@ -197,10 +207,10 @@ def save_push_subscription(
         conn.close()
 
 
-def delete_push_subscription(endpoint: str) -> None:
+def delete_push_subscription(user_id: int, endpoint: str) -> None:
     conn = get_conn()
     try:
-        conn.execute("DELETE FROM push_subscriptions WHERE endpoint = ?", (endpoint,))
+        conn.execute("DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint = ?", (user_id, endpoint))
         conn.commit()
     finally:
         conn.close()
@@ -213,6 +223,30 @@ def list_push_subscriptions_for_user(user_id: int) -> List[Dict[str, Any]]:
             "SELECT * FROM push_subscriptions WHERE user_id = ?", (user_id,)
         ).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def mark_push_alert_sent(user_id: int, endpoint: str) -> None:
+    conn = get_conn()
+    try:
+        conn.execute(
+            "UPDATE push_subscriptions SET last_alert_at = datetime('now') WHERE user_id = ? AND endpoint = ?",
+            (user_id, endpoint),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def clear_push_alert_sent(user_id: int, endpoint: str) -> None:
+    conn = get_conn()
+    try:
+        conn.execute(
+            "UPDATE push_subscriptions SET last_alert_at = NULL WHERE user_id = ? AND endpoint = ?",
+            (user_id, endpoint),
+        )
+        conn.commit()
     finally:
         conn.close()
 

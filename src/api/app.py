@@ -17,9 +17,15 @@ if sys.platform == "win32":
         pass
 
 import json
+import math
+import re
+import unicodedata
 import time
 import asyncio
 import traceback
+from html import unescape
+from urllib.parse import urlparse
+from contextlib import asynccontextmanager
 from datetime import date, timedelta
 from typing import Optional, Dict
 from concurrent.futures import ThreadPoolExecutor
@@ -32,7 +38,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import joblib
 
 # ---- pickle compat for weather model ----
-from src.integrations.weather.main import HybridSafetyPredictor, WeatherPreprocessor, map_risk_level_v17
+from src.integrations.weather.main import HybridSafetyPredictor, WeatherPreprocessor, map_risk_level_v17, normalize_weather_score
 sys.modules['__main__'].WeatherPreprocessor = WeatherPreprocessor
 sys.modules['__main__'].map_risk_level_v17 = map_risk_level_v17
 
@@ -40,7 +46,7 @@ sys.modules['__main__'].map_risk_level_v17 = map_risk_level_v17
 from src.api.config import (
     FEATURES_PATH, PROVINCES_CFG, WEATHER_MODEL_PATH,
     WEATHER_MODEL_FEATURES_PATH,
-    TRACKASIA_BASE, TRACKASIA_KEY, RISK_GROUPS,
+    TRACKASIA_BASE, TRACKASIA_KEY, RISK_GROUPS, NEWS_RISK_MAX_AGE_DAYS,
 )
 from src.api.utils import (
     load_features_df, resolve_place, score_from_subset,
@@ -60,6 +66,7 @@ from src.api.weather_ai import (
 from src.integrations.traffic.serpapi_service import (
     search_location_google,
     check_route_traffic_google,
+    unavailable_route,
     _serpapi_geo_cache, _SERPAPI_GEO_CACHE_TTL,
 )
 from src.api.db import init_db, save_trip_history, list_trip_history, delete_trip_history
@@ -136,7 +143,14 @@ def _sanitize_for_json(obj):
 # ============================================================
 # APP
 # ============================================================
-app = FastAPI(title="Vietnam Travel Risk API", version="2.4")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    load_weather_model()
+    init_database()
+    yield
+
+
+app = FastAPI(title="Vietnam Travel Risk API", version="2.5", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -160,7 +174,6 @@ async def log_requests(request: Request, call_next):
 weather_model_system = None
 
 
-@app.on_event("startup")
 def load_weather_model():
     global weather_model_system
     try:
@@ -195,7 +208,6 @@ def load_weather_model():
 # is a bit slower on the very first such request instead.
 
 
-@app.on_event("startup")
 def init_database():
     """Create users/trip_history/push_subscriptions tables if they don't exist."""
     try:
@@ -211,13 +223,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     print(f"\n[API UNHANDLED] path={request.url.path} err={repr(exc)}\n{tb}")
     return JSONResponse(
         status_code=500,
-        content={
-            "error": "Internal Server Error",
-            "exception": repr(exc),
-            "traceback": tb,
-            "path": str(request.url.path),
-            "hint": "Try /debug/where, /debug/sample, /debug/stats?reload=true",
-        },
+        content={"error": "Internal Server Error"},
     )
 
 
@@ -299,6 +305,80 @@ def risk_summary(
     return {"place": place, "resolved": resolved, **score_from_subset(df_sub)}
 
 
+_EXPLICIT_RISK_HEADLINE_TERMS = (
+    "bão", "áp thấp", "mưa lớn", "mưa đá", "lũ", "lụt", "ngập",
+    "sạt lở", "sóng thần", "động đất", "nắng nóng", "hạn hán",
+    "tai nạn", "va chạm", "cháy", "hỏa hoạn", "phát nổ", "nổ súng",
+    "đuối nước", "mất tích", "thương vong", "tử vong", "thiệt mạng",
+    "sập cầu", "sập nhà", "sét đánh", "cướp", "trộm", "lừa đảo",
+    "lừa", "tấn công", "hành hung", "ngộ độc", "dịch bệnh",
+    "ô nhiễm", "bụi mịn", "kẹt xe", "ùn tắc", "cấm đường",
+    "đường bị chặn", "phong tỏa", "sơ tán", "mất điện", "nguy hiểm",
+)
+_EXPLICIT_RISK_HEADLINE = re.compile(
+    r"\b(?:" + "|".join(re.escape(term) for term in _EXPLICIT_RISK_HEADLINE_TERMS) + r")\b",
+    re.IGNORECASE,
+)
+
+
+def _headline_mentions_place(title: str, place: str) -> bool:
+    def plain(value: str) -> str:
+        normalized = unicodedata.normalize("NFKD", value.casefold()).replace("đ", "d")
+        return re.sub(r"[^a-z0-9]+", " ", "".join(c for c in normalized if not unicodedata.combining(c))).strip()
+
+    headline = f" {plain(title)} "
+    canonical = plain(place)
+    aliases = {
+        "tp ho chi minh": ("tp hcm", "tphcm", "ho chi minh", "sai gon"),
+        "ha noi": ("hanoi",),
+        "lam dong": ("da lat",),
+        "khanh hoa": ("nha trang",),
+        "da nang": ("danang",),
+        "ba ria vung tau": ("vung tau",),
+    }
+    return any(f" {name} " in headline for name in (canonical, *aliases.get(canonical, ())))
+
+
+@app.get("/risk/events")
+def risk_events(
+    place: str = Query(...),
+    limit: int = Query(12, ge=1, le=50),
+):
+    """Return source articles whose headlines explicitly mention a risk event.
+
+    The model's broad positive label also includes many benign articles. A
+    headline filter keeps the event list from presenting those as incidents.
+    The separate /risk summary retains its existing scoring contract.
+    """
+    df = load_features_df(force=False)
+    resolved = resolve_place(place)
+    rows = df[(df["province"].fillna("") == resolved) & (df["quality_pass"] == True)].copy()
+    rows = rows[rows["risk_any"] == True]
+    if "p_risk_any" in rows:
+        rows = rows[(rows["p_risk_any"].isna()) | (rows["p_risk_any"] >= 0.5)]
+    rows = rows[rows["title"].fillna("").map(
+        lambda title: bool(_EXPLICIT_RISK_HEADLINE.search(unescape(unescape(str(title)))))
+        and _headline_mentions_place(unescape(unescape(str(title))), resolved)
+    )]
+    rows = rows.sort_values(["pub_date", "id"], ascending=[False, False], na_position="last").drop_duplicates("id")
+    events = []
+    for _, row in rows.head(limit).iterrows():
+        url = str(row.get("url") or "")
+        published = row.get("pub_date")
+        score = row.get("risk_score_effective")
+        events.append({
+            "id": str(row.get("id")),
+            "title": unescape(unescape(str(row.get("title") or "Không có tiêu đề"))),
+            "date": published.isoformat() if pd.notna(published) else None,
+            "source": urlparse(url).netloc.removeprefix("www.") if url else None,
+            "url": url if url.startswith(("https://", "http://")) else None,
+            "severity": str(row.get("severity_bucket")) if pd.notna(row.get("severity_bucket")) else None,
+            "risk_score": round(float(score) / 2, 1) if pd.notna(score) else None,
+            "risk_groups": list(row.get("risk_groups") or []),
+        })
+    return {"place": place, "resolved": resolved, "count": len(events), "events": events}
+
+
 @app.get("/risk/compare")
 def risk_compare(
     places: str = Query(..., description="Comma-separated list of places, e.g. 'Đà Nẵng,Hà Nội,Đà Lạt'"),
@@ -358,7 +438,7 @@ def risk_trend(
 
     g = (
         df_sub.groupby("pub_date")
-        .agg(num_articles=("id", "count"), avg_rule=("risk_score_rule", "mean"))
+        .agg(num_articles=("id", "count"), avg_rule=("risk_score_effective", "mean"))
         .reset_index()
     )
     g["risk_score"] = (g["avg_rule"] / 20.0 * 10.0).clip(0, 10).round().astype(int)
@@ -408,10 +488,10 @@ _TRIP_CACHE_TTL = 300  # 5 minutes
 _trip_cache: Dict[str, dict] = {}  # key -> {"ts": float, "response": dict}
 
 
-def _trip_cache_key(destination: str, lat: float, lon: float) -> str:
+def _trip_cache_key(destination: str, lat: float, lon: float, purpose: str = "standard") -> str:
     """Round GPS to ~500m precision so nearby positions hit same cache."""
     dest_norm = destination.strip().lower()
-    return f"{dest_norm}|{lat:.3f}|{lon:.3f}"
+    return f"{dest_norm}|{lat:.3f}|{lon:.3f}|{purpose}"
 
 
 def _trip_cache_get(key: str) -> Optional[dict]:
@@ -457,10 +537,19 @@ async def trip_check(
             lat_f = float(lat.replace(",", "."))
             lon_f = float(lon.replace(",", "."))
         except Exception:
-            raise HTTPException(status_code=422, detail="lat/lon must be numeric")        # --- Check cache first ---
-        cache_key = _trip_cache_key(destination, lat_f, lon_f)
+            raise HTTPException(status_code=422, detail="lat/lon must be numeric")
+        if not (math.isfinite(lat_f) and math.isfinite(lon_f) and -90 <= lat_f <= 90 and -180 <= lon_f <= 180):
+            raise HTTPException(status_code=422, detail="lat/lon must be valid coordinates")
+
+        # --- Check cache first ---
+        cache_key = _trip_cache_key(destination, lat_f, lon_f, trip_purpose)
         cached = _trip_cache_get(cache_key)
         if cached:
+            if current_user:
+                try:
+                    save_trip_history(current_user["id"], destination, lat_f, lon_f, trip_purpose, cached)
+                except Exception as e:
+                    print(f"[/trip] WARNING: failed to save cached trip history: {e}")
             return _safe_json_response({**cached, "_cached": True})
 
         loop = asyncio.get_event_loop()
@@ -478,7 +567,8 @@ async def trip_check(
         # 2) Pre-load features DF (from cache, very fast after startup)
         try:
             df = load_features_df(force=False)
-        except Exception:
+        except Exception as e:
+            print(f"[/trip] WARNING: news features unavailable: {e}")
             df = pd.DataFrame()
 
         prov = None
@@ -499,10 +589,14 @@ async def trip_check(
 
         # 3) Run traffic, weather, and risk scoring IN PARALLEL
         async def fetch_traffic():
-            return await loop.run_in_executor(
-                _executor,
-                check_route_traffic_google,                "Vị trí hiện tại", dest_name, lat_f, lon_f, dest_lat, dest_lon,
-            )
+            try:
+                return await loop.run_in_executor(
+                    _executor, check_route_traffic_google,
+                    "Vị trí hiện tại", dest_name, lat_f, lon_f, dest_lat, dest_lon,
+                )
+            except Exception as exc:
+                print(f"[/trip] Traffic provider unavailable: {type(exc).__name__}")
+                return unavailable_route()
 
         async def fetch_weather():
             try:
@@ -532,9 +626,11 @@ async def trip_check(
                 # ---- Type safety: ensure w_score is a float ----
                 w_score = float(w_score)
 
+                normalized_w_score = normalize_weather_score(w_score)
                 w_result = {
                     "risk_level": int(w_level),
-                    "risk_score": round(w_score, 2),
+                    "risk_score": round(normalized_w_score, 2),
+                    "model_score_0_20": round(w_score, 2),
                     "message": MSG_MAP.get(int(w_level), "Unknown"),
                     "detection_method": w_method,
                     "temperature": ai_input.get("temperature"),
@@ -548,7 +644,7 @@ async def trip_check(
                 # Trip purpose adjustment (always runs — defaults to "standard")
                 purpose = trip_purpose or "standard"
                 try:
-                    adj = adjust_risk_for_purpose(w_score, purpose, weather_data=ai_input)
+                    adj = adjust_risk_for_purpose(normalized_w_score, purpose, weather_data=ai_input)
                     w_result["trip_purpose"] = purpose
                     w_result["purpose_label"] = adj["purpose_label"]
                     w_result["adjusted_risk_score"] = adj["adjusted_score"]
@@ -558,7 +654,7 @@ async def trip_check(
                     print(traceback.format_exc())
                     w_result["trip_purpose"] = purpose
                     w_result["purpose_label"] = ""
-                    w_result["adjusted_risk_score"] = round(min(max(w_score, 1.0), 10.0), 2)
+                    w_result["adjusted_risk_score"] = round(normalized_w_score, 2)
                     w_result["adjusted_reason"] = f"Lỗi điều chỉnh: {adj_err}"
                 return w_result
             except Exception as e:
@@ -568,41 +664,79 @@ async def trip_check(
 
         def compute_risk():
             risk_score, risk_num_articles = None, 0
+            historical_num_articles = 0
+            historical_risk_score, latest_article_date = None, None
+            risk_data_status = "no_data"
             risk_assessment: Dict[str, int] = {g: 0 for g in RISK_GROUPS}
-            if prov:
+            model_source, model_scored_articles = "rules", 0
+            if prov and not df.empty and {"province", "quality_pass"}.issubset(df.columns):
                 df_sub = df[(df["province"].fillna("") == prov) & (df["quality_pass"] == True)]
-                out = score_from_subset(df_sub)
-                risk_score = int(out["overall_risk_score"])
-                risk_num_articles = int(out["num_articles"])
-                risk_assessment = out["risk_assessment"]
-            return risk_score, risk_num_articles, risk_assessment
+                historical = score_from_subset(df_sub)
+                historical_num_articles = int(historical["num_articles"])
+                latest_article_date = historical["latest_article_date"]
+                model_source = historical["news_model_source"]
+                if historical_num_articles:
+                    historical_risk_score = int(historical["overall_risk_score"])
+                    risk_data_status = "stale"
+
+                if "pub_date" in df_sub.columns:
+                    today = date.today()
+                    recent_start = today - timedelta(days=NEWS_RISK_MAX_AGE_DAYS)
+                    df_sub = df_sub[
+                        df_sub["pub_date"].notna()
+                        & (df_sub["pub_date"] >= recent_start)
+                        & (df_sub["pub_date"] <= today)
+                    ]
+                else:
+                    df_sub = df_sub.iloc[0:0]
+                recent = score_from_subset(df_sub)
+                risk_num_articles = int(recent["num_articles"])
+                if risk_num_articles:
+                    risk_score = int(recent["overall_risk_score"])
+                    risk_assessment = recent["risk_assessment"]
+                    model_source = recent["news_model_source"]
+                    model_scored_articles = recent["model_scored_articles"]
+                    risk_data_status = "fresh"
+            return (risk_score, risk_num_articles, risk_assessment, model_source,
+                    model_scored_articles, historical_risk_score, historical_num_articles,
+                    latest_article_date, risk_data_status)
 
         # Fire all three tasks concurrently
         traffic_task = asyncio.create_task(fetch_traffic())
         weather_task = asyncio.create_task(fetch_weather())
         risk_future = loop.run_in_executor(_executor, compute_risk)
 
-        traffic, weather_info, (risk_score, risk_num_articles, risk_assessment) = await asyncio.gather(
+        traffic, weather_info, (risk_score, risk_num_articles, risk_assessment, model_source,
+                                model_scored_articles, historical_risk_score, historical_num_articles,
+                                latest_article_date,
+                                risk_data_status) = await asyncio.gather(
             traffic_task, weather_task, risk_future
         )
 
-        # Validate traffic result
-        if not traffic:
-            raise HTTPException(status_code=500, detail="Không lấy được traffic route từ SerpAPI")
-        if isinstance(traffic, dict) and traffic.get("error"):
-            raise HTTPException(status_code=502, detail=f"Lỗi lấy traffic: {traffic['error']}")
-
-        await loop.run_in_executor(
-            _executor, ensure_route_polyline, traffic, lat_f, lon_f, float(dest_lat), float(dest_lon)
-        )
+        # Routing providers are optional. Weather and news remain useful if they fail.
+        if not isinstance(traffic, dict) or not traffic or traffic.get("error"):
+            traffic = unavailable_route()
+        if traffic.get("route_available") is not False:
+            await loop.run_in_executor(
+                _executor, ensure_route_polyline, traffic, lat_f, lon_f, float(dest_lat), float(dest_lon)
+            )
 
         # 5) Recommendation (enhanced with weather + trip purpose)
         recommendation = "✅ NÊN ĐI"
         reasons = []
+        caution_reasons = []
         if "🔴" in str(traffic.get("status_emoji") or "") or traffic.get("status") == "heavy":
             reasons.append("kẹt xe nặng")
+        if traffic.get("route_available") is False:
+            caution_reasons.append("chưa lấy được tuyến đường; cần kiểm tra chỉ đường trước khi đi")
+        elif traffic.get("traffic_available") is False:
+            caution_reasons.append("chưa có dữ liệu giao thông trực tiếp; thời gian đi chỉ là ước tính")
         if isinstance(risk_score, int) and risk_score >= 7:
             reasons.append("rủi ro báo chí cao")
+        if risk_data_status == "stale":
+            caution_reasons.append("tin tức rủi ro chưa được cập nhật")
+        elif risk_data_status == "no_data":
+            caution_reasons.append("chưa có dữ liệu tin tức cho điểm đến")
 
         # Use adjusted risk score if trip_purpose provided, else base score
         w_risk_score = None
@@ -614,13 +748,17 @@ async def trip_check(
             except (TypeError, ValueError):
                 print(f"[/trip] WARNING: w_risk_score not numeric: {w_risk_score!r}, defaulting to 0")
                 w_risk_score = 0.0
-            if w_risk_score >= 7:
+            if int(weather_info.get("risk_level") or 0) >= 4 or w_risk_score >= 7:
                 reasons.append(f"thời tiết nguy hiểm: {weather_info.get('message', '')}")
+            elif w_risk_score >= 4:
+                caution_reasons.append(weather_info.get("message") or "thời tiết không thuận lợi")
+        else:
+            caution_reasons.append("không lấy được đánh giá thời tiết")
 
         if reasons:
             recommendation = "❌ KHÔNG NÊN ĐI (" + ", ".join(reasons) + ")"
-        elif w_risk_score is not None and w_risk_score >= 4:
-            recommendation = "⚠️ CẨN THẬN (" + (weather_info.get("message") or "thời tiết không thuận lợi") + ")"
+        elif caution_reasons:
+            recommendation = "⚠️ CẨN THẬN (" + ", ".join(caution_reasons) + ")"
 
         # 6) Human-readable time
         tn = traffic.get("time_normal_min")
@@ -646,18 +784,30 @@ async def trip_check(
                 "time_traffic": tth,
                 "time_normal_human": tnh,
                 "time_traffic_human": tth,
-                "speed_kmh": traffic.get("speed_kmh", 50),
+                "speed_kmh": traffic.get("speed_kmh"),
                 "traffic_score": traffic.get("traffic_score"),
                 "delay_min": traffic.get("delay_min"),
+                "traffic_available": traffic.get("traffic_available", False),
+                "route_available": traffic.get("route_available", True),
+                "traffic_source": traffic.get("traffic_source"),
+                "message": traffic.get("message"),
                 "route_polyline": traffic.get("route_polyline"),
                 "route_polyline_provider": traffic.get("route_polyline_provider"),
                 "route_polyline_type": traffic.get("route_polyline_type"),
             },
             "risk": {
                 "risk_score": risk_score,
+                "historical_risk_score": historical_risk_score,
+                "historical_num_articles": historical_num_articles,
+                "latest_article_date": latest_article_date,
+                "data_status": risk_data_status,
+                "recent_window_days": NEWS_RISK_MAX_AGE_DAYS,
                 "num_articles": risk_num_articles,
+                "model_scored_articles": model_scored_articles,
+                "news_model_source": model_source,
                 "risk_assessment": risk_assessment,
-            },            "weather": weather_info,
+            },
+            "weather": weather_info,
             "trip_purpose": trip_purpose,
             "recommendation": recommendation,
             "matched_province": matched_province,
@@ -674,7 +824,8 @@ async def trip_check(
                 print(f"[/trip] WARNING: failed to save trip history: {e}")
 
         # --- Save to cache ---
-        _trip_cache_set(cache_key, result)
+        if result["traffic"]["route_available"]:
+            _trip_cache_set(cache_key, result)
 
         # Return via _safe_json_response to completely bypass FastAPI's jsonable_encoder
         return _safe_json_response(result)
@@ -686,16 +837,7 @@ async def trip_check(
         # ---- GLOBAL CATCH: log full traceback so the exact failing line is visible ----
         print(f"\n[/trip] UNHANDLED ERROR: {e!r}")
         print(traceback.format_exc())
-        return JSONResponse(
-            status_code=500,
-            content={
-                "error": "Internal Server Error in /trip",
-                "exception": repr(e),
-                "traceback": traceback.format_exc(),
-                "destination": destination,
-                "trip_purpose": trip_purpose,
-            },
-        )
+        return JSONResponse(status_code=500, content={"error": "Internal Server Error in /trip"})
 
 
 # ============================================================
@@ -795,11 +937,15 @@ def traffic_route(from_addr: str = Query(...), to_addr: str = Query(...)):
     if lat2 is None:
         raise HTTPException(status_code=404, detail=f"Không tìm thấy điểm đến: {to_addr}")
 
-    traffic = check_route_traffic_google(name1, name2, lat1, lon1, lat2, lon2)
-    if not traffic:
-        raise HTTPException(status_code=500, detail="Không lấy được traffic từ SerpAPI")
-
-    ensure_route_polyline(traffic, float(lat1), float(lon1), float(lat2), float(lon2))
+    try:
+        traffic = check_route_traffic_google(name1, name2, lat1, lon1, lat2, lon2)
+    except Exception as exc:
+        print(f"[/traffic/route] Traffic provider unavailable: {type(exc).__name__}")
+        traffic = unavailable_route()
+    if not isinstance(traffic, dict) or not traffic or traffic.get("error"):
+        traffic = unavailable_route()
+    if traffic.get("route_available") is not False:
+        ensure_route_polyline(traffic, float(lat1), float(lon1), float(lat2), float(lon2))
 
     tn, tt = traffic.get("time_normal_min"), traffic.get("time_traffic_min")
     return {
@@ -821,7 +967,7 @@ def map_heat():
     df = load_features_df(force=False)
     dfq = df[df["quality_pass"] == True].copy()
     agg = dfq.groupby("province", dropna=True).agg(
-        num_articles=("id", "count"), avg_rule=("risk_score_rule", "mean")
+        num_articles=("id", "count"), avg_rule=("risk_score_effective", "mean")
     ).reset_index()
     agg["risk_score"] = (agg["avg_rule"] / 20.0 * 10.0).clip(0, 10)
 

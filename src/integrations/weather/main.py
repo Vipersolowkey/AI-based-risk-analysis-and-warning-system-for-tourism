@@ -1,6 +1,6 @@
 # =======================================================
 # FILE: main.py
-# MỤC ĐÍCH: API SERVER CHO AI MODEL V17
+# MỤC ĐÍCH: API SERVER CHO WEATHER MODEL V5
 # =======================================================
 
 import uvicorn
@@ -12,6 +12,7 @@ import json
 import os
 import re
 import unicodedata
+from contextlib import asynccontextmanager
 import joblib
 from sklearn.base import BaseEstimator, TransformerMixin
 
@@ -53,6 +54,32 @@ def map_risk_level_v17(score):
     elif score < 16: return 4
     return 5
 
+
+def normalize_weather_score(raw_score):
+    """Convert the model's 0–20 score to the 0–10 API/advice scale."""
+    score = float(raw_score)
+    if not np.isfinite(score):
+        return 10.0
+    return float(np.clip(score / 2.0, 0.0, 10.0))
+
+
+# Representative 0–20 scores for the weather dataset's five trained classes.
+# Level 5 is reserved for the hard safety gates.
+CLASS_SCORE_0_20 = {0: 1.0, 1: 4.0, 2: 7.0, 3: 10.0, 4: 14.0}
+
+
+def derive_weather_features(data: dict) -> dict:
+    """Apply the same deterministic feature engineering used for training."""
+    values = dict(data)
+    precipitation = max(float(values.get("precipitation", 0) or 0), 0.0)
+    humidity = float(np.clip(float(values.get("humidity", 0) or 0), 0.0, 100.0))
+    visibility = max(float(values.get("visibility_km", 0) or 0), 0.0)
+    pm25 = max(float(values.get("pm25", 0) or 0), 0.0)
+    values["slippery_index"] = round(min(precipitation / 50.0, 1.0) * (humidity / 100.0), 4)
+    values["visibility_block"] = round(max(1.0 - visibility / 10.0, 0.0), 4)
+    values["smog_impact"] = round(min(pm25 / 150.0, 1.0), 4)
+    return values
+
 # Class Hybrid Wrapper (Chứa logic Safety Gate)
 class HybridSafetyPredictor:
     def __init__(self, ml_pipeline, feature_names=None):
@@ -79,6 +106,17 @@ class HybridSafetyPredictor:
             return 18.0, 5, "SAFETY_GATE_DANGEROUS_VISIBILITY"
         return None
 
+    def _interpret_prediction(self, prediction):
+        if hasattr(self.pipeline, "predict_proba") and hasattr(self.pipeline, "classes_"):
+            level = int(prediction)
+            if level not in CLASS_SCORE_0_20:
+                raise ValueError(f"Unexpected weather class: {level}")
+            return CLASS_SCORE_0_20[level], level, "AI_XGBOOST"
+        raw_score = float(prediction)
+        if not np.isfinite(raw_score):
+            return 20.0, 5, "FAILSAFE_NAN"
+        return raw_score, map_risk_level_v17(raw_score), "AI_XGBOOST"
+
     def predict(self, input_df):
         row = input_df.iloc[0]
         # --- SAFETY GATES (Luật cứng) ---
@@ -88,10 +126,8 @@ class HybridSafetyPredictor:
         # --- AI PREDICTION ---
         try:
             aligned_df = self._align_features(input_df.copy())
-            raw_score = self.pipeline.predict(aligned_df)[0]
-            if np.isnan(raw_score): return 20.0, 5, "FAILSAFE_NAN"
-            level = map_risk_level_v17(raw_score)
-            return raw_score, level, "AI_XGBOOST"
+            prediction = self.pipeline.predict(aligned_df)[0]
+            return self._interpret_prediction(prediction)
         except Exception as e:
             print(f"[Weather AI] Prediction error: {e}")
             return 20.0, 5, "FAILSAFE_CRASH"
@@ -119,13 +155,9 @@ class HybridSafetyPredictor:
             try:
                 batch_df = input_df.iloc[ml_indices].copy()
                 aligned_df = self._align_features(batch_df)
-                raw_scores = self.pipeline.predict(aligned_df)
-                for idx, raw_score in zip(ml_indices, raw_scores):
-                    if np.isnan(raw_score):
-                        results[idx] = (20.0, 5, "FAILSAFE_NAN")
-                    else:
-                        level = map_risk_level_v17(raw_score)
-                        results[idx] = (float(raw_score), level, "AI_XGBOOST")
+                predictions = self.pipeline.predict(aligned_df)
+                for idx, prediction in zip(ml_indices, predictions):
+                    results[idx] = self._interpret_prediction(prediction)
             except Exception as e:
                 print(f"[Weather AI] Batch prediction error: {e}")
                 for idx in ml_indices:
@@ -137,24 +169,30 @@ class HybridSafetyPredictor:
 # -------------------------------------------------------
 # PHẦN 2: KHỞI TẠO SERVER API
 # -------------------------------------------------------
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    load_model()
+    yield
+
+
 app = FastAPI(
     title="Weather Risk AI API",
-    description="API đánh giá rủi ro thời tiết cho lộ trình đường đi (V17)",
-    version="17.0"
+    description="API đánh giá rủi ro thời tiết cho lộ trình đường đi",
+    version="5.0",
+    lifespan=lifespan,
 )
 
 # Biến toàn cục để chứa model
 model_system = None
 
 # Sự kiện chạy 1 lần duy nhất khi bật Server
-@app.on_event("startup")
 def load_model():
     global model_system
     try:
         # Load file model .pkl
-        print("⏳ Đang tải model V4...")
+        print("⏳ Đang tải model V5...")
         model_dir = os.path.dirname(os.path.abspath(__file__))
-        model_path = os.path.join(model_dir, "weather_risk_v4_master.pkl")
+        model_path = os.path.join(model_dir, "weather_risk_v5_classifier.pkl")
         features_path = os.path.join(model_dir, "model_features.json")
 
         bundle = joblib.load(model_path)
@@ -175,7 +213,7 @@ def load_model():
         
         # Tái tạo hệ thống Hybrid
         model_system = HybridSafetyPredictor(pipeline, feature_names=feature_names)
-        print("✅ AI Model V4 Loaded Successfully! Sẵn sàng phục vụ.")
+        print("✅ AI Model V5 Loaded Successfully! Sẵn sàng phục vụ.")
     except Exception as e:
         print(f"❌ LỖI NGHIÊM TRỌNG: Không thể load model. Chi tiết: {e}")
 
@@ -427,7 +465,7 @@ async def predict_risk(data: WeatherPayload):
         raise HTTPException(status_code=500, detail="Model chưa sẵn sàng")
     
     # 1. Chuyển JSON thành DataFrame
-    input_dict = data.dict()
+    input_dict = derive_weather_features(data.model_dump())
     # Resolve location_encoded from province name if not explicitly set
     if input_dict.get("location_encoded", 0) == 0 and input_dict.get("province", "Unknown") != "Unknown":
         input_dict["location_encoded"] = _lookup_location_encoded(input_dict["province"])
@@ -449,7 +487,8 @@ async def predict_risk(data: WeatherPayload):
     # 4. Trả kết quả JSON về cho Backend
     return {
         "risk_level": int(level),
-        "risk_score": float(f"{score:.2f}"),
+        "risk_score": round(normalize_weather_score(score), 2),
+        "model_score_0_20": round(float(score), 2),
         "message": msg_map.get(int(level), "Unknown"),
         "detection_method": method
     }

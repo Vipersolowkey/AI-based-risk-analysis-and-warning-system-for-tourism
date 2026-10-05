@@ -42,6 +42,15 @@ def test_authenticated_trip_is_saved_to_history(client, auth_headers):
     assert results[0]["destination"] == "Nha Trang"
 
 
+def test_cached_trip_is_also_saved_to_history(client, auth_headers):
+    first = _run_trip(client, headers=auth_headers, destination="Đà Lạt cache history test")
+    second = _run_trip(client, headers=auth_headers, destination="Đà Lạt cache history test")
+    assert first.status_code == second.status_code == 200
+    assert second.json()["_cached"] is True
+    rows = client.get("/api/trip-history", headers=auth_headers).json()["results"]
+    assert len([row for row in rows if row["destination"] == "Đà Lạt cache history test"]) == 2
+
+
 def test_anonymous_trip_not_saved(client, auth_headers):
     # Anonymous request (no Authorization header) should not create history
     # for this user even though we check with their token afterwards.

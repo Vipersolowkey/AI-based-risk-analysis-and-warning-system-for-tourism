@@ -1,0 +1,38 @@
+export const TRIP_PURPOSES = [
+  {
+    key: "dating",
+    label: "Hẹn hò",
+    icon: "💕",
+    desc: "Lãng mạn, cần thời tiết đẹp",
+    gradient: "linear-gradient(135deg, #ec4899, #f43f5e)",
+    shadow: "rgba(236,72,153,0.35)",
+    bg: "rgba(236,72,153,0.12)",
+  },
+  {
+    key: "family",
+    label: "Gia đình",
+    icon: "👨‍👩‍👧‍👦",
+    desc: "An toàn là trên hết",
+    gradient: "linear-gradient(135deg, #3b82f6, #10b981)",
+    shadow: "rgba(59,130,246,0.35)",
+    bg: "rgba(59,130,246,0.12)",
+  },
+  {
+    key: "adventure",
+    label: "Phiêu lưu",
+    icon: "🏔️",
+    desc: "Thử thách, chấp nhận rủi ro",
+    gradient: "linear-gradient(135deg, #f97316, #ef4444)",
+    shadow: "rgba(249,115,22,0.35)",
+    bg: "rgba(249,115,22,0.12)",
+  },
+  {
+    key: "solo",
+    label: "Một mình",
+    icon: "🎒",
+    desc: "Tự do, linh hoạt",
+    gradient: "linear-gradient(135deg, #6b7280, #334155)",
+    shadow: "rgba(107,114,128,0.35)",
+    bg: "rgba(107,114,128,0.12)",
+  },
+];

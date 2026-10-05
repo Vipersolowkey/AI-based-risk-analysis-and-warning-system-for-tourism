@@ -6,7 +6,7 @@ from datetime import datetime, timezone, timedelta
 import time
 import unicodedata
 import re
-from src.integrations.weather.main import HybridSafetyPredictor, WeatherPreprocessor, map_risk_level_v17
+from src.integrations.weather.main import HybridSafetyPredictor, WeatherPreprocessor, map_risk_level_v17, normalize_weather_score, derive_weather_features
 from src.api.config import OPENWEATHERMAP_API_KEY
 import requests
 
@@ -103,10 +103,8 @@ def _air_quality_cache_key(lat: float, lon: float) -> str:
 
 
 def _fetch_air_quality(lat: Optional[float], lon: Optional[float]) -> float:
-    """Real PM2.5 from OpenWeatherMap Air Pollution API. Falls back to a fixed
-    placeholder if no API key is configured or the request fails, so the app
-    keeps working before the user supplies OPENWEATHERMAP_API_KEY."""
-    if lat is None or lon is None or not OPENWEATHERMAP_API_KEY:
+    """Get PM2.5 from OpenWeatherMap, then Open-Meteo Air Quality as fallback."""
+    if lat is None or lon is None:
         return _PM25_FALLBACK
 
     key = _air_quality_cache_key(lat, lon)
@@ -114,17 +112,33 @@ def _fetch_air_quality(lat: Optional[float], lon: Optional[float]) -> float:
     if entry and time.time() - entry["ts"] <= _AIR_QUALITY_CACHE_TTL:
         return entry["pm25"]
 
-    try:
-        resp = requests.get(
-            "https://api.openweathermap.org/data/2.5/air_pollution",
-            params={"lat": lat, "lon": lon, "appid": OPENWEATHERMAP_API_KEY},
-            timeout=5,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        pm25 = float(data["list"][0]["components"]["pm2_5"])
-    except Exception as e:
-        print(f"[air_quality] Failed to fetch PM2.5, using fallback: {e}")
+    pm25 = None
+    if OPENWEATHERMAP_API_KEY:
+        try:
+            resp = requests.get(
+                "https://api.openweathermap.org/data/2.5/air_pollution",
+                params={"lat": lat, "lon": lon, "appid": OPENWEATHERMAP_API_KEY},
+                timeout=5,
+            )
+            resp.raise_for_status()
+            pm25 = float(resp.json()["list"][0]["components"]["pm2_5"])
+        except Exception as e:
+            print(f"[air_quality] OpenWeatherMap unavailable: {e}")
+
+    if pm25 is None:
+        try:
+            resp = requests.get(
+                "https://air-quality-api.open-meteo.com/v1/air-quality",
+                params={"latitude": lat, "longitude": lon, "current": "pm2_5"},
+                timeout=5,
+            )
+            resp.raise_for_status()
+            pm25 = float(resp.json()["current"]["pm2_5"])
+        except Exception as e:
+            print(f"[air_quality] Open-Meteo unavailable; using fallback PM2.5: {e}")
+            return _PM25_FALLBACK
+
+    if not 0 <= pm25 < 10000:
         return _PM25_FALLBACK
 
     if len(_air_quality_cache) > 500:
@@ -516,11 +530,7 @@ _CITY_ALIASES = {
 def _geocode_openmeteo(city_name: str) -> dict:
     """Use Open-Meteo Geocoding API to resolve city name -> lat/lon.
     Falls back to Vietnamese aliases if initial search fails.
-    Also tries extracting known province/city names from long address strings.
-
-    SAFETY NET: Never raises HTTPException 404.  If geocoding completely
-    fails, returns a default dict with Hanoi coordinates so the forecast
-    pipeline can continue with degraded accuracy rather than crashing."""
+    Also tries extracting known province/city names from long address strings."""
     cached_result = _geocode_cache_get(city_name)
     if cached_result:
         return cached_result
@@ -588,23 +598,12 @@ def _geocode_openmeteo(city_name: str) -> dict:
         data = resp.json()
         results = data.get("results")
         if results:
-            # Prefer Vietnam results
             vn = [r for r in results if (r.get("country_code") or "").upper() == "VN"]
-            result = vn[0] if vn else results[0]
-            _geocode_cache_set(city_name, result)
-            return result
+            if vn:
+                _geocode_cache_set(city_name, vn[0])
+                return vn[0]
 
-    # ---- SAFETY NET: return Hanoi defaults so pipeline never crashes ----
-    print(f"[Geocode] WARNING: Could not geocode '{city_name}', using Hanoi default")
-    default = {
-        "latitude": 21.0285,
-        "longitude": 105.8542,
-        "elevation": 2.0,
-        "name": city_name,
-        "country_code": "VN",
-    }
-    _geocode_cache_set(city_name, default)
-    return default
+    raise HTTPException(status_code=404, detail=f"Không xác định được tọa độ tại Việt Nam cho '{city_name}'")
 
 
 def _get_with_retry(url: str, params: dict, timeout: int, attempts: int = 3):
@@ -778,8 +777,7 @@ def transform_openmeteo_to_ai_format(om_data: dict, province: str = "Unknown", g
     uv_index_raw = _safe_get(hourly.get("uv_index"), idx, 5.0)
     visibility_m = _safe_get(hourly.get("visibility"), idx, 10000.0)
     visibility_km = visibility_m / 1000.0
-    # Open-Meteo doesn't provide PM2.5 — fetch real value from OpenWeatherMap
-    # Air Pollution API (falls back to a fixed placeholder without an API key).
+    # The weather feed has no PM2.5; get it from an air-quality provider.
     pm25 = _fetch_air_quality(geo.get("latitude") if geo else None, geo.get("longitude") if geo else None)
     wind = float(cw.get("windspeed", 0.0))
     temperature = float(cw.get("temperature", 25.0))
@@ -1118,8 +1116,13 @@ def adjust_risk_for_purpose(
 
             if vis < cfg["visibility_threshold"]:
                 adjusted += cfg["visibility_penalty"]
-                reasons.append(f"Tầm nhìn thấp {vis:.1f}km (+{cfg['visibility_penalty']})")        # ---- Strict bounds: clamp to [1.0, 10.0] ----
+                reasons.append(f"Tầm nhìn thấp {vis:.1f}km (+{cfg['visibility_penalty']})")
+
+        # ---- Strict bounds: clamp to [1.0, 10.0] ----
         final_score = round(min(max(adjusted, 1.0), 10.0), 2)
+        # Trip preferences must not reduce a severe model/safety result.
+        if base_score >= 7.0:
+            final_score = max(final_score, round(min(base_score, 10.0), 2))
 
         # ---- Purpose-specific motivational/advisory suffix ----
         is_perfect = (precip <= 2 and wind <= 15 and uv <= 7 and temp >= 20 and temp <= 30)
@@ -1169,6 +1172,17 @@ def register_weather_model(model):
     weather_model_system = model
 
 
+def weather_prediction_fields(score: float, level: int, method: str) -> dict:
+    """Expose a consistent score scale in every weather API response."""
+    return {
+        "risk_level": int(level),
+        "risk_score": round(normalize_weather_score(score), 2),
+        "model_score_0_20": round(float(score), 2),
+        "message": MSG_MAP.get(int(level), "Unknown"),
+        "detection_method": method,
+    }
+
+
 def assess_weather_risk(lat: float, lon: float, province: str = "Unknown", purpose: str = "standard") -> Optional[dict]:
     """Shared weather-risk assessment for known coordinates — used by both
     /trip's fetch_weather() path and the Web Push check-now trigger, so the
@@ -1185,12 +1199,7 @@ def assess_weather_risk(lat: float, lon: float, province: str = "Unknown", purpo
     ai_input = transform_openmeteo_to_ai_format(om_data, province=province, geo=geo_info, purpose=purpose)
     df = pd.DataFrame([ai_input])
     score, level, method = weather_model_system.predict(df)
-    return {
-        "risk_level": int(level),
-        "risk_score": float(f"{float(score):.2f}"),
-        "message": MSG_MAP.get(int(level), "Unknown"),
-        "detection_method": method,
-    }
+    return weather_prediction_fields(score, level, method)
 
 
 @weather_router.post("/weather/ai")
@@ -1198,18 +1207,13 @@ def weather_ai_predict(data: WeatherAIPayload):
     """Predict weather risk from manual payload (offline)."""
     if not weather_model_system:
         raise HTTPException(status_code=500, detail="Weather AI model not loaded")
-    input_dict = data.dict()
+    input_dict = derive_weather_features(data.model_dump())
     # Resolve location_encoded from province name if not explicitly set
     if input_dict.get("location_encoded", 0) == 0 and input_dict.get("province", "Unknown") != "Unknown":
         input_dict["location_encoded"] = _lookup_location_encoded(input_dict["province"])
     df = pd.DataFrame([input_dict])
     score, level, method = weather_model_system.predict(df)
-    return {
-        "risk_level": int(level),
-        "risk_score": float(f"{score:.2f}"),
-        "message": MSG_MAP.get(int(level), "Unknown"),
-        "detection_method": method,
-    }
+    return weather_prediction_fields(score, level, method)
 
 
 @weather_router.post("/weather/ai/live")
@@ -1247,10 +1251,7 @@ def weather_ai_live_predict(data: WeatherAILivePayload = Body(...)):
         "city_resolved": resolved_name,
         "coordinates": {"lat": lat, "lon": lon},
         "input": ai_input,
-        "risk_level": int(level),
-        "risk_score": float(f"{score:.2f}"),
-        "message": MSG_MAP.get(int(level), "Unknown"),
-        "detection_method": method,
+        **weather_prediction_fields(score, level, method),
         "health_advice": ai_input.get("health_advice", ""),
         "weather_provider": "Open-Meteo (free, no key)",
     }
@@ -1258,7 +1259,7 @@ def weather_ai_live_predict(data: WeatherAILivePayload = Body(...)):
     # 5. Trip purpose adjustment (if provided)
     if data.trip_purpose:
         try:
-            adj = adjust_risk_for_purpose(float(score), data.trip_purpose, weather_data=ai_input)
+            adj = adjust_risk_for_purpose(normalize_weather_score(score), data.trip_purpose, weather_data=ai_input)
             result["trip_purpose"] = data.trip_purpose
             result["purpose_label"] = adj["purpose_label"]
             result["adjusted_risk_score"] = adj["adjusted_score"]
@@ -1266,7 +1267,7 @@ def weather_ai_live_predict(data: WeatherAILivePayload = Body(...)):
         except Exception as e:
             print(f"[/weather/ai/live] ERROR in adjust_risk_for_purpose: {e} | score={score}, purpose={data.trip_purpose}")
             result["trip_purpose"] = data.trip_purpose
-            result["adjusted_risk_score"] = round(min(max(float(score), 1.0), 10.0), 2)
+            result["adjusted_risk_score"] = round(normalize_weather_score(score), 2)
             result["adjusted_reason"] = f"Lỗi điều chỉnh: {e}"
 
     return result
@@ -1278,6 +1279,8 @@ def weather_ai_forecast(
     province: Optional[str] = Query(None),
     days: int = Query(7, ge=1, le=16, description="Number of forecast days (1-16)"),
     trip_purpose: Optional[str] = Query(None, description="Trip purpose: dating, family, adventure, solo"),
+    lat: Optional[float] = Query(None, ge=-90, le=90, description="Resolved destination latitude"),
+    lon: Optional[float] = Query(None, ge=-180, le=180, description="Resolved destination longitude"),
 ):
     """
     7-day (or custom) weather forecast with AI risk prediction per day.
@@ -1287,13 +1290,19 @@ def weather_ai_forecast(
     if not weather_model_system:
         raise HTTPException(status_code=500, detail="Weather AI model not loaded")
 
-    # 1. Geocode
-    geo = _geocode_openmeteo(city)
+    # A trip already has resolved destination coordinates. Re-geocoding its
+    # display name can silently select another city (or the Hanoi fallback).
+    if (lat is None) != (lon is None):
+        raise HTTPException(status_code=422, detail="Provide both lat and lon")
+    geo = (
+        {"latitude": lat, "longitude": lon, "name": city}
+        if lat is not None else _geocode_openmeteo(city)
+    )
     lat, lon = geo["latitude"], geo["longitude"]
     resolved_name = geo.get("name", city)
 
     # 2. Fetch daily forecast (with cache)
-    fc_key = _forecast_cache_key(city, days)
+    fc_key = _forecast_cache_key(f"{city}|{lat:.5f}|{lon:.5f}", days)
     cached_fc = _forecast_cache_get(fc_key)
     if cached_fc:
         forecast_data = cached_fc
@@ -1318,10 +1327,7 @@ def weather_ai_forecast(
     for day_item, (score, level, method) in zip(daily_inputs, batch_results):
         day_result = {
             "date": day_item["date"],
-            "risk_level": int(level),
-            "risk_score": float(f"{score:.2f}"),
-            "message": MSG_MAP.get(int(level), "Unknown"),
-            "detection_method": method,
+            **weather_prediction_fields(score, level, method),
             "temperature": day_item["input"]["temperature"],
             "temp_max": day_item["detail"]["temp_max"],
             "temp_min": day_item["detail"]["temp_min"],
@@ -1335,13 +1341,13 @@ def weather_ai_forecast(
         # Trip purpose adjustment per day
         if trip_purpose:
             try:
-                adj = adjust_risk_for_purpose(float(score), trip_purpose, weather_data=day_item["input"])
+                adj = adjust_risk_for_purpose(normalize_weather_score(score), trip_purpose, weather_data=day_item["input"])
                 day_result["adjusted_risk_score"] = adj["adjusted_score"]
                 day_result["adjusted_reason"] = adj["adjusted_reason"]
                 day_result["purpose_label"] = adj["purpose_label"]
             except Exception as e:
                 print(f"[/weather/ai/forecast] ERROR in adjust_risk_for_purpose: {e} | score={score}, purpose={trip_purpose}")
-                day_result["adjusted_risk_score"] = round(min(max(float(score), 1.0), 10.0), 2)
+                day_result["adjusted_risk_score"] = round(normalize_weather_score(score), 2)
                 day_result["adjusted_reason"] = f"Lỗi điều chỉnh: {e}"
         daily_results.append(day_result)
 
@@ -1428,10 +1434,7 @@ def weather_ai_batch(data: WeatherAIBatchPayload = Body(...)):
             "city": m["city"],
             "city_resolved": m["resolved"],
             "coordinates": {"lat": m["lat"], "lon": m["lon"]},
-            "risk_level": int(level),
-            "risk_score": float(f"{score:.2f}"),
-            "message": MSG_MAP.get(int(level), "Unknown"),
-            "detection_method": method,
+            **weather_prediction_fields(score, level, method),
             "temperature": ai_input.get("temperature"),
             "humidity": ai_input.get("humidity"),
             "precipitation": ai_input.get("precipitation"),

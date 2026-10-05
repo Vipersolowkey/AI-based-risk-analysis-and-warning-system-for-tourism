@@ -7,19 +7,24 @@ import json
 import os
 import re
 import unicodedata
+from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 import yaml
 from fastapi import HTTPException
 
-from src.api.config import FEATURES_PATH, PROVINCES_CFG, RISK_GROUPS, PLACE_MAP
+from src.api.config import (
+    FEATURES_PATH, PROVINCES_CFG, RISK_GROUPS, PLACE_MAP,
+    NEWS_PREDICTIONS_PATH, PHOBERT_PREDICTIONS_PATH, BASELINE_PREDICTIONS_PATH,
+    NEWS_RISK_MAX_AGE_DAYS, PROJECT_ROOT,
+)
 
 # ============================================================
 # In-memory DataFrame cache
 # ============================================================
 _df_cache: Optional[pd.DataFrame] = None
-_df_mtime: Optional[float] = None
+_df_mtime: Optional[tuple] = None
 
 # ============================================================
 # Province YAML cache (file rarely changes)
@@ -102,6 +107,20 @@ def _published_to_str(x) -> str:
         return str(x)
 
 
+def _published_to_date(x):
+    """Parse one RSS timestamp while keeping its original calendar date.
+
+    RSS feeds mix timezone offsets. Parsing the whole Series at once fails on
+    recent pandas versions, and forcing UTC can move a Vietnamese article to
+    the previous day.
+    """
+    raw = _published_to_str(x)
+    if not raw:
+        return None
+    timestamp = pd.to_datetime(raw, errors="coerce")
+    return None if pd.isna(timestamp) else timestamp.date()
+
+
 def ensure_schema(df: pd.DataFrame) -> pd.DataFrame:
     defaults = {
         "province": None, "quality_pass": False, "published_at": None,
@@ -118,9 +137,49 @@ def ensure_schema(df: pd.DataFrame) -> pd.DataFrame:
     df["risk_groups"] = df["risk_groups"].apply(_to_list_safe)
     df["risk_score_rule"] = pd.to_numeric(df["risk_score_rule"], errors="coerce").fillna(0.0)
 
-    pub = df["published_at"].apply(_published_to_str)
-    ts = pd.to_datetime(pub, errors="coerce")
-    df["pub_date"] = ts.apply(lambda x: x.date() if hasattr(x, "date") else None)
+    df["pub_date"] = df["published_at"].apply(_published_to_date)
+    return df
+
+
+def _news_predictions_files() -> List[str]:
+    """Apply baseline predictions, then override matching articles with PhoBERT."""
+    override = NEWS_PREDICTIONS_PATH
+    if override and not os.path.isabs(override):
+        override = os.path.join(PROJECT_ROOT, override)
+    paths = (BASELINE_PREDICTIONS_PATH, PHOBERT_PREDICTIONS_PATH, override)
+    return list(dict.fromkeys(path for path in paths if path and os.path.exists(path)))
+
+
+def _attach_news_predictions(df: pd.DataFrame, paths: List[str]) -> pd.DataFrame:
+    existing = pd.to_numeric(df.get("p_risk_any"), errors="coerce") if "p_risk_any" in df else pd.Series(float("nan"), index=df.index)
+    sources = pd.Series("rules", index=df.index)
+    sources.loc[existing.notna()] = "features_embedded"
+    for path in paths:
+        predictions = safe_read_jsonl(path)
+        probability_by_id = {}
+        source_by_id = {}
+        for row in predictions:
+            article_id = row.get("id")
+            try:
+                probability = float(row.get("p_risk_any"))
+            except (TypeError, ValueError):
+                continue
+            if article_id and 0.0 <= probability <= 1.0:
+                probability_by_id[article_id] = probability
+                source_by_id[article_id] = row.get("model_source") or (
+                    "phobert" if path == PHOBERT_PREDICTIONS_PATH else "tfidf_logreg"
+                )
+        if probability_by_id:
+            from_file = df["id"].map(probability_by_id)
+            matched = from_file.notna()
+            existing.loc[matched] = from_file.loc[matched]
+            sources.loc[matched] = df.loc[matched, "id"].map(source_by_id)
+            print(f"[API] News model source={path}, scored={int(matched.sum())}/{len(df)}")
+    df["p_risk_any"] = existing.clip(0.0, 1.0)
+    df["news_model_source"] = sources
+    # PhoBERT / baseline predicts whether an article is about risk. The rule
+    # score still measures incident severity and identifies the risk category.
+    df["risk_score_effective"] = df["risk_score_rule"] * df["p_risk_any"].fillna(1.0)
     return df
 
 
@@ -130,7 +189,9 @@ def load_features_df(force: bool = False) -> pd.DataFrame:
     if not os.path.exists(FEATURES_PATH):
         raise HTTPException(status_code=404, detail=f"Missing features file: {FEATURES_PATH}")
 
-    mtime = os.path.getmtime(FEATURES_PATH)
+    predictions_paths = _news_predictions_files()
+    mtime = (os.path.getmtime(FEATURES_PATH),
+             tuple((path, os.path.getmtime(path)) for path in predictions_paths))
     if (not force) and (_df_cache is not None) and (_df_mtime == mtime):
         return _df_cache
 
@@ -139,7 +200,7 @@ def load_features_df(force: bool = False) -> pd.DataFrame:
         raise HTTPException(status_code=400, detail="No valid JSON rows in features JSONL.")
 
     df = pd.DataFrame(rows)
-    df = ensure_schema(df)
+    df = _attach_news_predictions(ensure_schema(df), predictions_paths)
 
     _df_cache = df
     _df_mtime = mtime
@@ -161,16 +222,32 @@ def resolve_place(place: str) -> str:
 def score_from_subset(df_sub: pd.DataFrame) -> Dict[str, Any]:
     n = int(len(df_sub))
     counts = {g: 0 for g in RISK_GROUPS}
-    for groups in df_sub["risk_groups"].tolist():
+    probabilities = df_sub["p_risk_any"].tolist() if "p_risk_any" in df_sub else [None] * n
+    for groups, probability in zip(df_sub["risk_groups"].tolist(), probabilities):
+        if probability is not None and pd.notna(probability) and probability < 0.5:
+            continue
         for g in groups:
             if g in counts:
                 counts[g] += 1
 
-    avg_rule = float(df_sub["risk_score_rule"].mean()) if n > 0 else 0.0
+    score_column = "risk_score_effective" if "risk_score_effective" in df_sub else "risk_score_rule"
+    avg_rule = float(df_sub[score_column].mean()) if n > 0 else 0.0
     overall = max(0.0, min(10.0, (avg_rule / 20.0) * 10.0))
+
+    model_scored = int(df_sub["p_risk_any"].notna().sum()) if "p_risk_any" in df_sub else 0
+    source_names = sorted(df_sub["news_model_source"].dropna().unique()) if n and "news_model_source" in df_sub else ["rules"]
+    model_source = "+".join(source_names)
+    dates = df_sub["pub_date"].dropna() if n and "pub_date" in df_sub else []
+    latest_date = max(dates) if len(dates) else None
+    age_days = max(0, (date.today() - latest_date).days) if latest_date else None
 
     return {
         "num_articles": n,
+        "model_scored_articles": model_scored,
+        "news_model_source": model_source,
+        "latest_article_date": latest_date.isoformat() if latest_date else None,
+        "data_age_days": age_days,
+        "is_stale": age_days is None or age_days > NEWS_RISK_MAX_AGE_DAYS,
         "risk_assessment": counts,
         "overall_risk_score": int(round(overall)),
     }

@@ -1,0 +1,82 @@
+{
+  "model_type": "XGBClassifier",
+  "train_years": [
+    2023,
+    2024
+  ],
+  "validation_year": 2025,
+  "train_rows": 138159,
+  "validation_rows": 68985,
+  "balanced_accuracy": 0.9324,
+  "macro_f1": 0.9533,
+  "severe_recall_levels_3_4": 0.987,
+  "per_level": {
+    "0": {
+      "precision": 0.9991,
+      "recall": 0.9999,
+      "f1": 0.9995,
+      "support": 28048
+    },
+    "1": {
+      "precision": 0.9973,
+      "recall": 0.9979,
+      "f1": 0.9976,
+      "support": 25199
+    },
+    "2": {
+      "precision": 0.9959,
+      "recall": 0.9938,
+      "f1": 0.9948,
+      "support": 13668
+    },
+    "3": {
+      "precision": 0.9873,
+      "recall": 0.9863,
+      "f1": 0.9868,
+      "support": 2051
+    },
+    "4": {
+      "precision": 0.9286,
+      "recall": 0.6842,
+      "f1": 0.7879,
+      "support": 19
+    }
+  },
+  "confusion_matrix": [
+    [
+      28044,
+      4,
+      0,
+      0,
+      0
+    ],
+    [
+      25,
+      25145,
+      29,
+      0,
+      0
+    ],
+    [
+      0,
+      65,
+      13583,
+      20,
+      0
+    ],
+    [
+      0,
+      0,
+      27,
+      2023,
+      1
+    ],
+    [
+      0,
+      0,
+      0,
+      6,
+      13
+    ]
+  ]
+}

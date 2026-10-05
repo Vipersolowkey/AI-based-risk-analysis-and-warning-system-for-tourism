@@ -15,7 +15,7 @@
 
 > **Lean-Agile Workshop — Final Project Submission**
 >
-> An end-to-end AI-powered travel risk assessment system for Vietnam, combining real-time weather prediction (XGBoost), NLP-based news risk analysis (PhoBERT), live traffic data (SerpAPI + Google Maps), user accounts with trip history, severe-weather Web Push alerts, and an interactive map dashboard (React + Leaflet).
+> An end-to-end travel risk assessment system for Vietnam, combining a trained XGBoost weather classifier, a trained Vietnamese news classifier with keyword-based severity rules, live traffic data, user accounts, Web Push alerts, and a React + Leaflet map. PhoBERT training and inference are available as an optional higher-capacity news model when a checkpoint is supplied.
 >
 > *(Badge above becomes live once this repo is pushed to GitHub — replace `YOUR-USERNAME/YOUR-REPO` with the actual path.)*
 
@@ -54,9 +54,9 @@ This system helps travelers in Vietnam assess travel risk by combining **three i
 
 | Source | Method | What it tells you |
 |--------|--------|-------------------|
-| **Weather AI** | XGBoost model + Safety Gates on real-time Open-Meteo data, real PM2.5 from OpenWeatherMap | Is the weather dangerous for travel? (rain, wind, visibility, UV, air quality) |
-| **News Risk** | PhoBERT NLP + keyword rules on Vietnamese news articles | Are there recent safety incidents at this destination? |
-| **Traffic** | SerpAPI Google Maps Directions (real-time) | Is the route congested? How long will the drive take? |
+| **Weather AI** | XGBoost classifier + hard safety rules on Open-Meteo weather and live PM2.5 | Are current or forecast weather conditions dangerous? |
+| **News Risk** | Offline TF-IDF/logistic-regression risk probability (optional PhoBERT override) + keyword severity rules | What incidents appear in the collected news corpus, and how old is that evidence? |
+| **Traffic** | SerpAPI live data when configured; TrackAsia/OSRM route estimates otherwise | Is the route congested when live data exists? What are the estimated distance and drive time when a route is available? |
 
 These three signals are combined into a single **recommendation**: ✅ **GO** / ⚠️ **CAUTION** / ❌ **DON'T GO**.
 
@@ -70,7 +70,7 @@ These three signals are combined into a single **recommendation**: ✅ **GO** / 
 - **Province risk trends** — Historical risk trends from news article analysis
 - **7-layer in-memory caching** — Minimizes external API calls, sub-second responses after first load
 - **Accounts & trip history** — Email/password JWT auth (SQLite-backed); every trip check while logged in is saved and browsable
-- **Real air quality** — PM2.5 pulled live from OpenWeatherMap's Air Pollution API instead of a fixed placeholder
+- **Air quality** — PM2.5 uses OpenWeatherMap when configured, then Open-Meteo Air Quality; a fixed value is used only if both calls fail
 - **Severe-weather push alerts** — Self-hosted Web Push (VAPID) notifies you when a watched destination's risk turns severe
 - **One-command local run** — `docker compose up --build` starts backend + frontend together
 - **CI on every push** — GitHub Actions runs the full pytest suite + frontend build
@@ -86,7 +86,7 @@ flowchart TB
     FE["Frontend — React + Vite\ntravel-ui/ (port 5173 dev / 80 prod via nginx)"]
     BE["Backend — FastAPI + Uvicorn\nsrc/api/app.py (port 8000)"]
     DB[("SQLite\ndata/state/app.sqlite\nusers · trip_history · push_subscriptions")]
-    Model["XGBoost weather-risk model\n+ pre-computed PhoBERT news scores"]
+    Model["XGBoost weather classifier\n+ pre-computed news ML probabilities"]
     OM["Open-Meteo\n(weather, free)"]
     OWM["OpenWeatherMap\nAir Pollution API"]
     Serp["SerpAPI\n(Google Maps traffic + geocode)"]
@@ -110,7 +110,7 @@ flowchart TB
 | Backend | FastAPI + Uvicorn | `src/api/app.py` — endpoints only; logic in `config.py`, `utils.py`, `routes.py`, `weather_ai.py`, `auth.py`, `db.py`, `notifications.py`. |
 | Auth | PyJWT + bcrypt | Email/password, no OAuth/external identity provider. |
 | Storage | SQLite (raw `sqlite3`, no ORM) | `data/state/app.sqlite` — users, trip_history, push_subscriptions. |
-| ML | XGBoost (weather) + PhoBERT (news, pre-computed offline) | See [§11](#11-ai--ml-model-documentation) for real eval metrics. |
+| ML | XGBoost (weather) + TF-IDF/logistic regression (news); optional PhoBERT output | News probabilities are computed offline and joined by article ID when the API loads features. |
 | External APIs | Open-Meteo (free), OpenWeatherMap Air Pollution, SerpAPI, TrackAsia/OSRM | All keys read from `.env` — see [§6](#6-environment-variables). |
 | Push | pywebpush + browser Service Worker | Self-hosted VAPID keypair, no external push provider account. |
 
@@ -126,13 +126,13 @@ flowchart TB
 | **OS** | Windows 10/11 | All commands below are PowerShell. macOS/Linux users: substitute `.\venv\Scripts\Activate.ps1` with `source venv/bin/activate`. |
 | **Git** | Any | To clone the repository (if applicable). |
 | **VS Code** | Recommended | With Python and ESLint extensions. |
-| **SerpAPI Key** | Required for `/trip` | Free tier: 100 searches/month at [serpapi.com](https://serpapi.com). Without it, trip check and traffic endpoints will fail. |
+| **SerpAPI Key** | Optional for live traffic and detailed place search | Without it, city search uses Open-Meteo; driving routes try TrackAsia, then OSRM. Live congestion is marked unavailable. |
 
 ### Hardware
 
 - **RAM**: Minimum 4 GB free (model loading + DataFrame)
 - **Disk**: ~500 MB for dependencies + model files
-- **GPU**: Not required (XGBoost runs on CPU; PhoBERT training benefits from GPU but inference is pre-computed)
+- **GPU**: Not required to run the API or train the included TF-IDF and XGBoost models. PhoBERT fine-tuning is much faster on a GPU.
 
 ---
 
@@ -141,7 +141,7 @@ flowchart TB
 The fastest way to run the full stack (backend + frontend) locally:
 
 ```powershell
-# 1. Copy the env template and fill in at least SERPAPI_KEYS (see §6)
+# 1. Copy the env template; add SERPAPI_KEYS if live traffic is needed (see §6)
 Copy-Item .env.example .env
 
 # 2. Build and start both services
@@ -180,7 +180,7 @@ Run these checks in the VS Code terminal (**Terminal → New Terminal**, or ``Ct
 # These files MUST exist for the system to work:
 Test-Path .\requirements.txt                                          # Python deps
 Test-Path .\travel-ui\package.json                                    # Frontend deps
-Test-Path .\src\integrations\weather\weather_risk_v4_master.pkl       # AI model
+Test-Path .\src\integrations\weather\weather_risk_v5_classifier.pkl   # Active weather AI model
 Test-Path .\src\integrations\weather\model_features.json              # Model feature names
 Test-Path .\data\features\articles_features.jsonl                     # Pre-processed news data
 Test-Path .\configs\provinces.yaml                                    # 63 provinces + coords
@@ -228,7 +228,7 @@ SERPAPI_KEY = [
 
 Get a free key at [serpapi.com](https://serpapi.com) (100 searches/month on free tier).
 
-> **Without a SerpAPI key**: The `/trip` and `/traffic/route` endpoints will fail with an error. All other endpoints (weather AI, risk, map, forecast) will work normally without any API key.
+> **Without a SerpAPI key**: `/trip` and `/traffic/route` support city and province lookups using Open-Meteo and the local province map. TrackAsia supplies a driving route and estimated travel time when available; OSRM is the next fallback. If both routing services fail, the trip assessment still returns weather and news with route distance/time marked unavailable and a caution. Live congestion and delay remain unavailable; specific businesses and street addresses may still need SerpAPI.
 
 ### Step 6: Install Frontend Dependencies
 
@@ -242,7 +242,7 @@ cd ..
 
 ```powershell
 # Check model loads correctly
-python -c "import joblib; m = joblib.load('src/integrations/weather/weather_risk_v4_master.pkl'); print('Model loaded OK, type:', type(m))"
+python -c "import joblib; m = joblib.load('src/integrations/weather/weather_risk_v5_classifier.pkl'); print('Model loaded OK, type:', type(m))"
 
 # Check features data exists and has content
 python -c "lines = open('data/features/articles_features.jsonl', encoding='utf-8').readlines(); print(f'Features file: {len(lines)} articles loaded')"
@@ -258,11 +258,13 @@ All secrets/config are read from a `.env` file at the repo root (loaded via `pyt
 
 | Variable | Required for | Where to get it | Fallback if unset |
 |----------|--------------|------------------|--------------------|
-| `SERPAPI_KEYS` | `/trip`, `/traffic/route` (real traffic + geocoding) | Free tier at [serpapi.com](https://serpapi.com) (100 searches/month) | Requests fail with a clear error; weather/risk endpoints still work |
-| `TRACKASIA_KEY` | Route polyline fallback | Optional — a working default is baked in for demo use | Falls back to OSRM |
+| `SERPAPI_KEYS` | `/trip`, `/traffic/route` (live traffic + detailed place search) | Free tier at [serpapi.com](https://serpapi.com) | City/province lookup and estimated TrackAsia/OSRM route are used; live traffic is unavailable |
+| `TRACKASIA_KEY` | Estimated driving route and polyline fallback | Optional — configure your own key in `.env` | Falls back to OSRM; missing route data is reported if both fail |
 | `JWT_SECRET` | Auth token signing | Any long random string you generate | Insecure dev default — **must** be changed before deploying publicly |
 | `JWT_EXPIRE_MINUTES` | Auth token lifetime | — | `1440` (24h) |
-| `OPENWEATHERMAP_API_KEY` | Real PM2.5 in weather risk scoring | Free tier at [openweathermap.org/api/air-pollution](https://openweathermap.org/api/air-pollution) | Falls back to a fixed placeholder value (10.0) |
+| `OPENWEATHERMAP_API_KEY` | Preferred PM2.5 source | OpenWeatherMap Air Pollution API | Open-Meteo Air Quality, then fixed value (10.0) if unavailable |
+| `NEWS_PREDICTIONS_PATH` | Override the default news prediction artifact | Local JSONL path | Baseline predictions, then PhoBERT predictions when present |
+| `NEWS_RISK_MAX_AGE_DAYS` | Maximum age of news used as current trip risk | Number of days | 30 |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | Web Push severe-weather alerts | Run `python scripts/generate_vapid_keys.py` and paste the output | Push endpoints return 503 (feature disabled) |
 | `VAPID_CONTACT_EMAIL` | Web Push (VAPID claim) | Any `mailto:` address | `mailto:admin@example.com` |
 
@@ -372,7 +374,7 @@ Invoke-RestMethod "http://127.0.0.1:8000/weather/ai/forecast?city=Da+Nang&days=7
 # Expected: daily array with 7 entries, each with date, risk_level, risk_score, temperature
 ```
 
-### 6.8 Trip Check (requires SerpAPI key)
+### 6.8 Trip Check (SerpAPI optional for live traffic)
 
 ```powershell
 Invoke-RestMethod "http://127.0.0.1:8000/trip?destination=Da+Lat&lat=10.77&lon=106.69"
@@ -411,10 +413,11 @@ This script runs 5 automated tests against the running backend: health check, of
 |--------|------|-------------|--------------|
 | `GET` | `/health` | Health check | None |
 | `GET` | `/risk?place={province}` | Risk score for one province (from news) | None |
+| `GET` | `/risk/events?place={province}&limit=12` | Dated source articles whose headlines explicitly mention a risk and the selected place | None |
 | `GET` | `/risk/compare?places={csv}` | Compare risk for multiple provinces (max 20) | None |
 | `GET` | `/risk/trend?place={province}` | Risk trend over time | None |
-| `GET` | `/trip?destination={name}&lat={lat}&lon={lon}&trip_purpose={purpose}` | **Full trip check** — traffic + weather + risk + recommendation | SerpAPI |
-| `GET` | `/traffic/route?from_addr={a}&to_addr={b}` | Traffic between two addresses | SerpAPI |
+| `GET` | `/trip?destination={name}&lat={lat}&lon={lon}&trip_purpose={purpose}` | **Full trip check** — route + weather + risk + recommendation; live traffic when SerpAPI is configured | SerpAPI optional |
+| `GET` | `/traffic/route?from_addr={a}&to_addr={b}` | Driving route between places; live traffic when available | SerpAPI optional |
 | `GET` | `/map/points` | Province list with coordinates (for map markers) | None |
 | `GET` | `/map/heat` | Heatmap data (risk intensity per province) | None |
 
@@ -521,16 +524,18 @@ This script runs 5 automated tests against the running backend: health check, of
 
 ## 10. Data Pipeline Documentation
 
-The data pipeline runs **offline** (not during normal app usage). All pre-processed outputs are **included in the repository**, so you do NOT need to re-run the pipeline to use the application.
+The news data pipeline runs **offline**. The API reads the included article features and prediction JSONL files; it does not crawl or run a language model for each request. As of this repository snapshot, the latest article is dated **2026-01-23**. `/risk` reports the data date and staleness; `/trip` does not treat news older than `NEWS_RISK_MAX_AGE_DAYS` as current risk.
 
 ### Pipeline Stages
 
 ```
 Stage 1: CRAWL      → data/raw/articles_raw.jsonl
 Stage 2: CLEAN      → data/clean/articles_clean.jsonl
-Stage 3: NLP + TRAIN → data/outputs/predictions.jsonl + checkpoints/
-Stage 4: FEATURES   → data/features/articles_features.jsonl  ← API reads this
-Stage 5: AGGREGATE  → data/outputs/agg_province_daily.csv
+Stage 3: NLP RULES   → data/features/articles_features.jsonl
+Stage 4: NEWS MODEL → data/outputs/news_baseline_predictions.jsonl
+                  or data/outputs/predictions.jsonl (PhoBERT)
+Stage 5: API JOIN   → match features + model probabilities by article ID
+Stage 6: AGGREGATE → data/outputs/agg_province_daily.csv (legacy rule-only export)
 ```
 
 | Stage | Module | Input | Output | Description |
@@ -538,10 +543,13 @@ Stage 5: AGGREGATE  → data/outputs/agg_province_daily.csv
 | Crawl | `src/crawl/` | Google News RSS (`configs/gnews_queries.yaml`) | `articles_raw.jsonl` | Fetches Vietnamese news articles about travel safety |
 | Clean | `src/clean/` | `articles_raw.jsonl` | `articles_clean.jsonl` | Extracts article text (trafilatura + BeautifulSoup), quality filter (min 600 chars, uniqueness) |
 | NLP | `src/nlp/` | `articles_clean.jsonl` + `configs/keywords.yaml` | Feature columns | Province matching (63 provinces + aliases), risk group classification (5 categories), severity scoring |
-| Train | `src/train/train.py` | `data/datasets/stage1_*.csv` | PhoBERT checkpoint | Fine-tunes `vinai/phobert-base` for binary risk classification |
-| Infer | `src/train/infer.py` | `articles_clean.jsonl` + checkpoint | `predictions.jsonl` | Runs PhoBERT inference on all articles |
-| Features | Combined pipeline | Clean + NLP + Predictions | `articles_features.jsonl` | Final merged JSONL consumed by the API |
-| Aggregate | `src/aggregate/province_daily.py` | `articles_features.jsonl` | `agg_province_daily.csv` | Daily aggregated risk scores per province |
+| Baseline train + infer | `src/train/news_baseline.py` | `stage1_*.csv` + clean articles | `news_risk_tfidf.joblib` + `news_baseline_predictions.jsonl` | Trains a binary ML classifier and scores every clean article |
+| Optional PhoBERT train | `src/train/train.py` | `stage1_*.csv` | Local checkpoint | Fine-tunes `vinai/phobert-base`; removes duplicate train/validation articles |
+| Optional PhoBERT infer | `src/train/infer.py` | Clean articles + checkpoint | `predictions.jsonl` | Overrides baseline probabilities for matching article IDs |
+| Features | NLP rules | Clean articles + keywords | `articles_features.jsonl` | Province, risk categories, and rule severity score |
+| Aggregate | `src/aggregate/province_daily.py` | `articles_features.jsonl` | `agg_province_daily.csv` | Existing rule-only historical export; API trends use model-weighted scores |
+
+Run `python -m src.train.news_baseline` after updating the clean articles or labeled news dataset. Run `python -m src.train.news_baseline --predict-only` to rescore new clean articles with the saved baseline model. If a PhoBERT checkpoint is available, run `python -m src.train.infer`; the API automatically gives its predictions priority for the articles it covers.
 
 ### Risk Groups (from NLP keyword rules)
 
@@ -559,9 +567,9 @@ Articles are classified into 5 risk categories using keyword matching defined in
 
 ## 11. AI / ML Model Documentation
 
-### Model 1: Weather Risk Predictor (XGBoost V17)
+### Model 1: Weather Risk Predictor (XGBoost V5)
 
-**Purpose**: Predict travel risk level (0–5) from real-time weather conditions.
+**Purpose**: Classify travel weather risk into levels 0–4. Hard safety rules assign level 5 for extreme conditions.
 
 **Architecture**: `HybridSafetyPredictor` = Safety Gates (hard rules, always checked first) + XGBoost ML model (for normal conditions).
 
@@ -578,8 +586,8 @@ Input (weather features + province)
                       ▼
 ┌─ XGBoost ML Model ─────────────────────────────────┐
 │  15 features (see model_features.json)              │
-│  Output: risk_score (continuous, 0–20)              │
-│  Mapped to: risk_level (discrete, 0–5)             │
+│  Output: risk_level (0–4)                            │
+│  Mapped to: public risk_score (0–10)                │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -587,16 +595,16 @@ Input (weather features + province)
 
 | Feature | Source |
 |---------|--------|
-| `location_encoded` | Province one-hot encoded |
+| `location_encoded` | Province encoded as an integer matching the training data |
 | `temperature` | Open-Meteo (°C) |
 | `humidity` | Open-Meteo (%) |
 | `precipitation` | Open-Meteo (mm) |
 | `wind` | Open-Meteo (km/h) |
-| `pm25` | Placeholder (10.0) — not available from Open-Meteo |
+| `pm25` | OpenWeatherMap or Open-Meteo Air Quality; fixed fallback only if both fail |
 | `visibility_km` | Open-Meteo (km) |
 | `uv_index` | Open-Meteo |
 | `elevation` | Open-Meteo (meters) |
-| `has_disaster_history` | Derived from province |
+| `has_disaster_history` | Set to 0 in live requests; no live disaster-history feed is connected |
 | `slippery_index` | Derived: precipitation × humidity |
 | `visibility_block` | Derived from visibility |
 | `smog_impact` | Derived from PM2.5 |
@@ -605,14 +613,18 @@ Input (weather features + province)
 
 **Risk Levels**:
 
-| Level | Score Range | Label | Recommended Action |
+| Level | Public `risk_score` | Label | Recommended Action |
 |-------|-------------|-------|--------------------|
-| 0 | 0 – 2 | An toàn (Safe) | ✅ Go |
-| 1 | 3 – 5 | Rủi ro thấp (Low) | ✅ Minor precautions |
-| 2 | 6 – 8 | Trung bình (Medium) | ⚠️ Reduce speed |
-| 3 | 9 – 11 | Cao (High) | ⚠️ Dangerous |
-| 4 | 12 – 15 | Rất cao (Very high) | ❌ Consider canceling |
-| 5 | 16 – 20 | THẢM HỌA (Disaster) | ❌ DO NOT TRAVEL |
+| 0 | 0.5 | An toàn (Safe) | ✅ Go |
+| 1 | 2.0 | Rủi ro thấp (Low) | ✅ Minor precautions |
+| 2 | 3.5 | Trung bình (Medium) | ⚠️ Caution |
+| 3 | 5.0 | Cao (High) | ⚠️ Caution |
+| 4 | 7.0 | Rất cao (Very high) | ❌ Do not go |
+| 5 | 9.0–10.0 | THẢM HỌA (Disaster, safety gate) | ❌ Do not travel |
+
+`model_score_0_20` in API responses is the representative 0–20 risk index for the predicted class or safety gate. The public `risk_score` is half that value. Trip-purpose adjustments use the public 0–10 scale and cannot lower a severe score.
+
+**Validation**: `python -m src.train.weather_classifier` trains on 2023–2024 weather rows and validates on 2025 rows. The included model achieved macro F1 **0.9533** and recall **0.9870** for levels 3–4 combined. These are results on the included labeled dataset, not a real-world incident outcome study; level 4 has only 19 validation examples.
 
 **Detection Methods** (returned in API response):
 
@@ -626,34 +638,29 @@ Input (weather features + province)
 | `FAILSAFE_CRASH` | Model crashed → defaults to max risk (safe failure) |
 
 **Model files**:
-- `src/integrations/weather/weather_risk_v4_master.pkl` — Serialized XGBoost pipeline
+- `src/integrations/weather/weather_risk_v5_classifier.pkl` — Active trained XGBoost classifier
 - `src/integrations/weather/model_features.json` — Ordered feature names
 - `src/integrations/weather/FINAL_DATASET_WITH_RISK-2.csv` — Original training dataset
+- `src/integrations/weather/weather_risk_v5_metrics.json` — Year-based validation metrics
 
-### Model 2: News Risk Classifier (PhoBERT)
+### Model 2: News Risk Classifier
 
 **Purpose**: Binary classification — does this Vietnamese news article describe a travel risk event?
 
-**Base model**: `vinai/phobert-base` (pre-trained Vietnamese language model)
-
-**Fine-tuning**: Sequence classification head, trained on labeled Vietnamese news articles.
-
 **Training data**: `data/datasets/stage1_train.csv` and `stage1_val.csv`
 
-**Checkpoint**: `data/outputs/checkpoints/stage1_risk_any/`
+**Active model**: TF-IDF features plus logistic regression, trained by `src/train/news_baseline.py`. The API joins `news_baseline_predictions.jsonl` with article features by ID. The model estimates whether an article is about a travel risk; keyword rules still identify the category and estimate severity. Each article's severity contribution is multiplied by its model probability.
 
-**Note**: PhoBERT inference is **pre-computed** and stored in `articles_features.jsonl`. The API does NOT run PhoBERT at request time — it reads pre-computed scores for fast response.
-
-**Evaluation metrics** (Stage 1 — binary risk-any, best checkpoint at epoch 2, from `data/outputs/checkpoints/stage1_risk_any/checkpoint-1452/trainer_state.json`):
+**Baseline validation**: Exact duplicate articles and train/validation overlaps were removed first. The remaining splits contain 2,217 train and 542 validation articles.
 
 | Metric | Value |
 |--------|-------|
-| F1 | 0.878 |
-| Precision | 0.828 |
-| Recall | 0.934 |
-| AUC-PR | 0.921 |
+| F1 | 0.9002 |
+| Precision | 0.9002 |
+| Recall | 0.9002 |
+| Average precision | 0.9558 |
 
-High recall (0.934) is the intentional design goal for a safety-classification task — missing a real risk article is worse than a false positive, so the model is tuned to lean toward flagging borderline cases.
+**Optional PhoBERT**: `src/train/train.py` fine-tunes `vinai/phobert-base`, and `src/train/infer.py` writes `data/outputs/predictions.jsonl`. Both paths use the same PyVi word segmentation from `src/train/vietnamese.py` (installed through `requirements-train.txt`). There is **no PhoBERT checkpoint in this repository snapshot**. If you train or supply one and generate predictions, the API uses PhoBERT probabilities wherever present and keeps the baseline for the remaining articles. Training PhoBERT requires substantial memory/time, preferably a GPU. The validation figures above describe the active baseline, not PhoBERT.
 
 ---
 
@@ -665,6 +672,9 @@ High recall (0.934) is the intentional design goal for a safety-classification t
 |---------|---------|---------|
 | React | 19.x | UI framework |
 | Vite | 7.x | Build tool + dev server with proxy |
+| React Router | 7.x | Separate page URLs, browser Back/Forward and deep links |
+| MUI | 9.x | Licensed dashboard template structure and shared components |
+| Be Vietnam Pro | 5.x | Locally bundled Vietnamese interface font |
 | Leaflet | 1.9.4 | Interactive map |
 | react-leaflet | 5.x | React bindings for Leaflet |
 | recharts | 3.x | Charts (risk trend line chart) |
@@ -675,32 +685,37 @@ High recall (0.934) is the intentional design goal for a safety-classification t
 
 | File | Description |
 |------|-------------|
-| `App.jsx` | Main component (~2900 lines): map, sidebar, trip form, weather popup, province panel, theme toggle |
+| `App.jsx` | Session, trip/API state, history, notifications and persisted trip context |
+| `portal/TravelPortal.jsx` | React Router pages and shared MUI theme |
+| `template/MuiDashboardShell.jsx` | Adapted licensed MUI dashboard navigation for desktop and mobile |
+| `pages/` | Plan, result, weather, traffic, news, map, compare, alerts and history pages |
 | `api.js` | API helper — all backend calls go through `apiGet()` with unified error handling |
 | `HeatmapLayer.jsx` | Leaflet heatmap overlay for risk visualization |
-| `vite.config.js` | Dev proxy: forwards `/trip`, `/risk`, `/weather`, `/map`, `/debug`, etc. to port 8000 |
-| `index.css` | CSS custom properties for light/dark theme |
-| `components/TrendChart.jsx` | Risk trend line chart (recharts) |
+| `vite.config.js` | Dev proxy: API subpaths forward to port 8000 while page URLs stay with React Router |
+| `THIRD_PARTY_UI.md` | Upstream UI source, pinned commit, adaptations and licenses |
 
 ### UI Features
 
-- **Light/Dark theme** — Toggle in header; uses CSS custom properties
-- **GPS integration** — Browser Geolocation API for current position
-- **Province search** — Autocomplete dropdown for 63 provinces
-- **7-day forecast** — Clickable day cards with star ratings (⭐) based on AI risk score
-- **Weather popup** — Glass-morphism floating card on map with animated rain/sun/moon effects
-- **Route polyline** — Actual driving route drawn on map (decoded from Google/TrackAsia/OSRM)
-- **Province risk panel** — Slide-up bottom panel with risk breakdown table + trend chart
-- **"Explore Province Risk" button** — Appears after trip check if destination matches a known province; clicking it opens the province risk panel
+- **Plan** (`/plan`) — origin/GPS, destination, date and purpose, with one clear evaluation action.
+- **Result** (`/result`) — backend GO/CAUTION/DON'T GO recommendation, verified reasons and links to each factor.
+- **Weather** (`/weather`) — current conditions and 7-day forecast from the trip APIs; missing PM2.5 remains explicitly missing.
+- **Traffic** (`/traffic`) — route time, distance and live-data availability.
+- **News** (`/news`) — source articles from `/risk/events`; headlines must explicitly mention a risk and the selected place. Historical data age is shown.
+- **Map** (`/map`) — the only page loading Leaflet; route, markers and optional historical risk heat layer.
+- **Compare, alerts and history** (`/compare`, `/alerts`, `/history`) — existing API functions in dedicated pages. Alerts require server VAPID configuration and browser support, check watched destinations every 30 minutes while the site is open, and avoid repeating the same severe alert for two hours.
+- **Shared context** — origin, destination, date, purpose and recent results persist through navigation and reload. Results expire locally after 30 minutes; form choices after seven days or on logout.
+- **Font and theme** — Be Vietnam Pro with Vietnamese subset, a consistent MUI palette, mobile drawer and light/dark mode.
 
 ### Vite Proxy Configuration
 
 The frontend dev server proxies all API routes to the backend. Configured in `travel-ui/vite.config.js`:
 
 ```
-/trip, /risk, /health, /map, /gps, /traffic, /weather, /debug, /api
+/trip, /risk, /health, /gps, /debug, /api and API subpaths /map/*, /traffic/*, /weather/*
   → http://127.0.0.1:8000
 ```
+
+The exact paths `/map`, `/traffic` and `/weather` are frontend pages and are not proxied.
 
 ### Production Build
 
@@ -777,8 +792,8 @@ This repo ships deploy-ready configs; **no deployment has been performed automat
 ### Frontend → Vercel
 
 1. In [Vercel](https://vercel.com), import `travel-ui/` as the project root.
-2. `travel-ui/vercel.json` defines the build command, output directory, and rewrites that proxy API paths to the backend (mirroring the Vite dev proxy / nginx setup).
-3. **Edit `travel-ui/vercel.json`** and replace every `YOUR-RENDER-BACKEND-URL.onrender.com` placeholder with your actual Render backend URL from the step above, then redeploy.
+2. In **Settings → Environment Variables**, add `VITE_API_BASE_URL` with the public URL of the deployed FastAPI backend (without a trailing slash), then redeploy.
+3. `travel-ui/vercel.json` still provides same-origin rewrites as a fallback. Keep their destination in sync with the live backend, or prefer `VITE_API_BASE_URL` so changing hosts does not require a source-code change.
 
 ---
 
@@ -801,13 +816,13 @@ travel_risk_pipeline_skeleton/
 ├── data/                         # All data artifacts (pre-computed, included)
 │   ├── raw/articles_raw.jsonl    #   Stage 1: Raw crawled articles
 │   ├── clean/articles_clean.jsonl#   Stage 2: Cleaned text
-│   ├── datasets/                 #   PhoBERT training/validation splits
-│   ├── features/                 #   Stage 4: Final features (API reads this)
+│   ├── datasets/                 #   News-model training/validation splits
+│   ├── features/                 #   Article metadata and rule features
 │   │   └── articles_features.jsonl
-│   ├── outputs/                  #   Model outputs + checkpoints
-│   │   ├── predictions.jsonl
-│   │   ├── agg_province_daily.csv
-│   │   └── checkpoints/stage1_risk_any/
+│   ├── models/                   #   Trained baseline classifier + metrics
+│   ├── outputs/                  #   Pre-computed model scores and aggregates
+│   │   ├── news_baseline_predictions.jsonl
+│   │   └── agg_province_daily.csv
 │   └── external/accidents.csv    #   External accident dataset
 │
 ├── src/                          # Python backend source
@@ -824,13 +839,13 @@ travel_risk_pipeline_skeleton/
 │   │   │   └── serpapi_service.py#     Search + directions + result parsing
 │   │   └── weather/              #   Weather AI model
 │   │       ├── main.py           #     HybridSafetyPredictor class
-│   │       ├── weather_risk_v4_master.pkl  # Trained XGBoost model
+│   │       ├── weather_risk_v5_classifier.pkl # Active XGBoost model
 │   │       └── model_features.json         # Feature name order
 │   │
 │   ├── crawl/                    #   News crawling pipeline
 │   ├── clean/                    #   Text extraction + quality check
 │   ├── nlp/                      #   NLP: province matching, risk rules, severity
-│   ├── train/                    #   PhoBERT training + inference
+│   ├── train/                    #   Weather, baseline news, PhoBERT training/inference
 │   ├── aggregate/                #   Province daily aggregation
 │   └── common/                   #   Shared utilities (I/O, text, URL)
 │
@@ -863,8 +878,8 @@ travel_risk_pipeline_skeleton/
 | 2 | **Open-Meteo over OpenWeatherMap** | Free, no API key required, reliable global coverage. Eliminates a deployment friction point — anyone can reproduce the system without signing up for a weather API. |
 | 3 | **In-memory caching (no Redis)** | Keeps deployment simple (single process, no external services). TTL + max-size eviction prevents memory leaks. Sufficient for single-server demo deployment. |
 | 4 | **SerpAPI for traffic** | Provides real Google Maps traffic data (`duration_in_traffic`). The direct Google Maps Directions API requires billing setup. SerpAPI's free tier (100/month) is enough for demo purposes. |
-| 5 | **3-layer polyline fallback** (SerpAPI → TrackAsia → OSRM) | Ensures a route is always visible on the map, even if the primary geocoding source fails or returns no polyline. |
-| 6 | **Pre-computed NLP features** | PhoBERT inference is computationally expensive (~0.5s per article on CPU). Pre-computing all features offline and serving from a JSONL file makes the API response time < 50ms. |
+| 5 | **3-layer route fallback** (SerpAPI → TrackAsia → OSRM) | Uses the first available driving route. If all providers fail, route distance, time, and geometry remain empty; the trip assessment continues with a caution. |
+| 6 | **Pre-computed NLP features** | News classifiers score articles offline. The API joins stored probabilities to article features by ID, avoiding model inference during requests. |
 | 7 | **Trip purpose risk adjustment** | The same weather conditions carry different risk depending on the activity. Outdoor dating in light rain is riskier than a family museum visit. The adjustment layer applies multipliers based on weather sensitivity of each purpose. |
 | 8 | **`matched_province` in API response** | Enables the frontend to link a trip destination back to the province risk system. If "Nha Trang" maps to "Khánh Hòa", the user can click one button to see full province risk data. |
 
@@ -873,7 +888,7 @@ travel_risk_pipeline_skeleton/
 | Sprint | Deliverables |
 |--------|-------------|
 | **Sprint 1 — Data Pipeline** | Built crawl (Google News RSS) → clean (trafilatura) → NLP (keyword rules + province matching) pipeline. Created `provinces.yaml` with 63 provinces, 100+ aliases. Defined 5 risk groups in `keywords.yaml`. |
-| **Sprint 2 — ML Models** | Trained PhoBERT (`vinai/phobert-base`) for binary article risk classification. Trained XGBoost weather risk model on labeled weather-risk dataset (V17). Implemented Safety Gates for extreme weather override. |
+| **Sprint 2 — ML Models** | The active weather model is a trained XGBoost classifier with Safety Gates. News uses a trained TF-IDF/logistic-regression baseline; PhoBERT can replace its probabilities after a checkpoint is trained and inference is run. |
 | **Sprint 3 — API Backend** | Built FastAPI backend with `/risk`, `/trip`, `/traffic`, `/map` endpoints. Integrated SerpAPI for traffic + geocoding. Added Open-Meteo for free weather data. Implemented 7-layer caching system with TTL + eviction. |
 | **Sprint 4 — Frontend** | Built React + Leaflet interactive map. Added 63 province markers, route polyline rendering, weather popup with rain/sun animations, 7-day forecast strip, trip purpose selection modal, light/dark theme. |
 | **Sprint 5 — Integration & Polish** | Connected all 3 risk sources into unified `/trip` recommendation. Added batch/compare endpoints. Added province risk panel with trend chart. Implemented "Explore Province Risk" linking button. Bug fixes, error handling improvements, performance tuning. |
@@ -896,13 +911,14 @@ travel_risk_pipeline_skeleton/
 
 | Issue | Impact | Workaround |
 |-------|--------|------------|
-| PM2.5 needs an OpenWeatherMap key | Falls back to a fixed placeholder (10.0) without `OPENWEATHERMAP_API_KEY` | Get a free key — see [§6](#6-environment-variables) |
+| Air-quality feeds can fail | PM2.5 falls back to 10.0 if both OpenWeatherMap and Open-Meteo Air Quality are unavailable | Inspect the returned weather input when diagnosing a result |
+| News corpus is historical | The latest included article is dated 2026-01-23 | `/trip` marks old news as stale; refresh the offline corpus before using it for current risk |
 | SerpAPI free tier: 100 searches/month | Limits how many trip checks can be performed | Aggressive caching (24h for geocode, 5min for trips). Use `/debug/trip-cache` to monitor usage |
 | `App.jsx` is still ~2280 lines | Landing/Login/Register/TripPurposeModal were extracted into `screens/`/`components/`; the deeply-stateful map/sidebar/header JSX is still inline in `App()` | Further splitting deferred — needs manual browser testing to verify no visual regression (not automatable from a build step alone) |
 | No persistent cache | In-memory caches reset on server restart (SQLite data itself does persist) | Acceptable for demo. For production, add Redis |
-| Web Push has no server-side cron | `check-now` only runs when the frontend calls it (open tab / manual trigger), not on a fixed schedule | `scripts/push_weather_check.py`-style cron job would close this gap — not yet implemented |
+| Web Push has no server-side cron | The frontend calls `check-now` every 30 minutes while a signed-in tab is visible, or on demand. No check runs while the site is closed | A server-side scheduler is required for continuous monitoring |
 | Single-server only | Cannot horizontally scale | Sufficient for demo and evaluation |
-| `.venv/`, `venv/`, `node_modules/` still tracked in git | Bloats repo size, `.gitignore` is still empty | **Deliberately deferred** — planned as a dedicated cleanup pass before the first public push (untrack + populate `.gitignore`) |
+| PhoBERT checkpoint is absent | The included baseline classifier supplies news probabilities until PhoBERT is trained | Run `python -m src.train.train` on suitable hardware, then `python -m src.train.infer` |
 
 ### Recommended Future Improvements
 
@@ -936,7 +952,7 @@ uvicorn src.api.app:app --reload --port 8000
 
 The model file is missing. Verify:
 ```powershell
-Test-Path .\src\integrations\weather\weather_risk_v4_master.pkl
+Test-Path .\src\integrations\weather\weather_risk_v5_classifier.pkl
 # Must return True
 ```
 If `False`, obtain the `.pkl` file and place it at the path above.
@@ -981,20 +997,10 @@ Normal behavior. The first request triggers DataFrame loading (~1-3 seconds). Th
 
 ## 20. Screenshots
 
-> **TODO**: capture real screenshots from a running instance before the public GitHub push. Suggested shots (save under `docs/screenshots/`, then embed with `![alt](docs/screenshots/file.png)`):
->
-> - [ ] Landing page (hero + CTA)
-> - [ ] Login / Register screens
-> - [ ] Main dashboard: map + Trip Advisor sidebar
-> - [ ] A completed trip check (traffic + weather + recommendation)
-> - [ ] 7-day forecast strip
-> - [ ] Province risk panel (bottom slide-up + trend chart)
-> - [ ] Trip history list (logged in)
-> - [ ] Browser notification permission prompt / a received severe-weather push
-> - [ ] Light and dark theme side-by-side
+The local UI review captures each new page at 1440 px and 390 px in [`travel-ui/artifacts/ui-review/`](travel-ui/artifacts/ui-review/). The review report includes font, overflow, map-placement, Back/Forward and reload checks. These are local review artifacts, not a deployment.
 
 ---
 
-> **Last updated**: July 2026
+> **Last updated**: October 2026
 >
 > For live system diagnosis, use the debug endpoints: `/debug/where` (paths), `/debug/stats` (data), `/debug/caches` (cache status). These expose full system state without needing server logs.

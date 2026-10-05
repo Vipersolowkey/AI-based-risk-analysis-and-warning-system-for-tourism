@@ -1,5 +1,4 @@
-"""PM2.5 should come from OpenWeatherMap when a key + coords are available,
-and fall back to the fixed placeholder otherwise (no key, or the call fails)."""
+"""PM2.5 should use live air-quality data before a fixed fallback."""
 from unittest.mock import patch
 
 import src.api.weather_ai as weather_ai
@@ -10,9 +9,20 @@ FAKE_OWM_RESPONSE = {
 }
 
 
-def test_fetch_air_quality_uses_fallback_without_key():
-    with patch.object(weather_ai, "OPENWEATHERMAP_API_KEY", ""):
-        assert weather_ai._fetch_air_quality(10.77, 106.69) == weather_ai._PM25_FALLBACK
+def test_fetch_air_quality_uses_openmeteo_without_key():
+    weather_ai._air_quality_cache.clear()
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"current": {"pm2_5": 31.2}}
+
+    with patch.object(weather_ai, "OPENWEATHERMAP_API_KEY", ""), \
+         patch("src.api.weather_ai.requests.get", return_value=FakeResponse()) as mock_get:
+        assert weather_ai._fetch_air_quality(10.77, 106.69) == 31.2
+    assert "open-meteo.com" in mock_get.call_args.args[0]
 
 
 def test_fetch_air_quality_uses_fallback_without_coords():
@@ -42,6 +52,21 @@ def test_fetch_air_quality_falls_back_on_error():
          patch("src.api.weather_ai.requests.get", side_effect=Exception("boom")):
         pm25 = weather_ai._fetch_air_quality(10.77, 106.69)
     assert pm25 == weather_ai._PM25_FALLBACK
+
+
+def test_fetch_air_quality_uses_openmeteo_when_openweathermap_fails():
+    weather_ai._air_quality_cache.clear()
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"current": {"pm2_5": 42.7}}
+
+    with patch.object(weather_ai, "OPENWEATHERMAP_API_KEY", "fake-key"), \
+         patch("src.api.weather_ai.requests.get", side_effect=[Exception("OWM failed"), FakeResponse()]):
+        assert weather_ai._fetch_air_quality(10.77, 106.69) == 42.7
 
 
 def test_transform_openmeteo_uses_air_quality_helper():

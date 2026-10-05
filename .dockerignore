@@ -13,3 +13,4 @@ data/state/*.sqlite
 *.pyc
 backend.log
 frontend.log
+src/integrations/weather/weather_risk_v4_master.pkl

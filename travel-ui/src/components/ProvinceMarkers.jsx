@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Marker, Popup } from "react-leaflet";
 import L from "leaflet";
 import { apiGet } from "../api";

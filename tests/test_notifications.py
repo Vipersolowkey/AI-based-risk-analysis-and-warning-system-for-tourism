@@ -6,6 +6,9 @@ def test_vapid_public_key_no_auth_needed(client):
     assert resp.status_code == 200
     assert "publicKey" in resp.json()
 
+    with patch("src.api.notifications.VAPID_PRIVATE_KEY", ""):
+        assert client.get("/api/notifications/vapid-public-key").json()["publicKey"] == ""
+
 
 def test_subscribe_requires_auth(client):
     resp = client.post(
@@ -13,6 +16,7 @@ def test_subscribe_requires_auth(client):
         json={"endpoint": "https://push.example.com/abc", "keys": {"p256dh": "x", "auth": "y"}},
     )
     assert resp.status_code == 401
+    assert client.get("/api/notifications/subscriptions").status_code == 401
 
 
 def test_subscribe_and_check_now(client, auth_headers):
@@ -31,6 +35,10 @@ def test_subscribe_and_check_now(client, auth_headers):
         )
         assert sub_resp.status_code == 200
         assert sub_resp.json()["subscribed"] is True
+        stored = client.get("/api/notifications/subscriptions", headers=auth_headers)
+        assert stored.status_code == 200
+        assert stored.json()["subscriptions"][0]["destination"] == "Đà Lạt"
+        assert "p256dh" not in stored.text
 
         with patch("src.api.notifications.assess_weather_risk", return_value={"risk_score": 9.0, "message": "Bão lớn"}), \
              patch("src.api.notifications._send_push", return_value=True) as mock_send:
@@ -40,6 +48,14 @@ def test_subscribe_and_check_now(client, auth_headers):
         assert data["checked"] == 1
         assert data["alerted"] == 1
         mock_send.assert_called_once()
+
+        with patch("src.api.notifications.assess_weather_risk", return_value={"risk_score": 9.0, "message": "Bão lớn"}), \
+             patch("src.api.notifications._send_push", return_value=True) as second_send:
+            repeated = client.post("/api/notifications/check-now", headers=auth_headers)
+        assert repeated.status_code == 200
+        assert repeated.json()["alerted"] == 0
+        assert repeated.json()["skipped_recent"] == 1
+        second_send.assert_not_called()
 
 
 def test_check_now_no_alert_when_risk_low(client, auth_headers):
@@ -77,3 +93,5 @@ def test_unsubscribe(client, auth_headers):
     )
     assert resp.status_code == 200
     assert resp.json()["unsubscribed"] is True
+    remaining = client.get("/api/notifications/subscriptions", headers=auth_headers)
+    assert not remaining.json()["subscriptions"]

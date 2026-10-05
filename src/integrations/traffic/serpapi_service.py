@@ -3,13 +3,62 @@ from __future__ import annotations
 import os
 import re
 import time
+import unicodedata
 from typing import Any, Dict, Optional, Tuple, List
 
 import requests
 
 from .config import SERPAPI_KEY  # can be str or list
+from src.api.config import TRACKASIA_BASE, TRACKASIA_KEY
 
 SERPAPI_URL = "https://serpapi.com/search"
+OPEN_METEO_GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
+OSRM_ROUTE_URL = "https://router.project-osrm.org/route/v1/driving"
+
+
+def unavailable_route() -> dict:
+    """Represent missing routing data without inventing distance or travel time."""
+    return {
+        "distance_km": None,
+        "time_normal_min": None,
+        "time_traffic_min": None,
+        "delay_min": None,
+        "ratio": None,
+        "speed_kmh": None,
+        "status": "unknown",
+        "status_emoji": None,
+        "traffic_score": None,
+        "traffic_available": False,
+        "route_available": False,
+        "traffic_source": None,
+        "route_polyline": None,
+        "route_polyline_provider": None,
+        "route_polyline_type": None,
+        "message": "Chưa lấy được tuyến đường. Hãy kiểm tra chỉ đường trước khi khởi hành.",
+    }
+
+
+def _plain_place(value: str) -> str:
+    value = value.lower().replace("đ", "d")
+    value = "".join(c for c in unicodedata.normalize("NFD", value) if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9]+", " ", value).strip()
+
+
+_LOCAL_CITY_COORDS = {
+    "da lat": (11.94646, 108.44193, "Đà Lạt, Lâm Đồng, Việt Nam"),
+    "dalat": (11.94646, 108.44193, "Đà Lạt, Lâm Đồng, Việt Nam"),
+}
+
+_GEOCODE_QUERY_ALIASES = {
+    "ha noi": "Hanoi",
+    "hanoi": "Hanoi",
+    "ho chi minh": "Ho Chi Minh City",
+    "tp ho chi minh": "Ho Chi Minh City",
+    "tphcm": "Ho Chi Minh City",
+    "sai gon": "Ho Chi Minh City",
+    "saigon": "Ho Chi Minh City",
+    "dalat": "Da Lat",
+}
 
 # ===================== PRE-COMPILED REGEX PATTERNS =====================
 _RE_HOURS = re.compile(r'(\d+)\s*(giờ|tiếng|h\b|hour|hrs?)')
@@ -84,7 +133,6 @@ def _call_serpapi(params: Dict[str, Any], timeout: int = 20) -> Dict[str, Any]:
             p["api_key"] = key
             r = requests.get(SERPAPI_URL, params=p, timeout=timeout)
             data = r.json()
-            print(data)
             # SerpAPI returns {"error": "..."} for quota/bad key/etc.
             if isinstance(data, dict) and data.get("error"):
                 last_err = str(data.get("error"))
@@ -218,48 +266,79 @@ def traffic_score_0_10(ratio: float, speed_kmh: float) -> int:
     return int(round(score))
 
 
+def _public_geocode(query: str) -> Tuple[Optional[float], Optional[float], Optional[str]]:
+    """Resolve Vietnamese cities without a SerpAPI key; reject unrelated matches."""
+    city = query.split(",", 1)[0].strip()
+    plain_city = _plain_place(city)
+    if plain_city in _LOCAL_CITY_COORDS:
+        return _LOCAL_CITY_COORDS[plain_city]
+
+    search_name = _GEOCODE_QUERY_ALIASES.get(plain_city, plain_city.title())
+    try:
+        response = requests.get(
+            OPEN_METEO_GEOCODE_URL,
+            params={"name": search_name, "count": 10, "countryCode": "VN", "language": "en"},
+            timeout=10,
+        )
+        response.raise_for_status()
+        results = response.json().get("results") or []
+        target = _plain_place(search_name).replace(" ", "")
+        matches = [item for item in results
+                   if item.get("country_code") == "VN"
+                   and _plain_place(item.get("name") or "").replace(" ", "") == target
+                   and item.get("latitude") is not None and item.get("longitude") is not None]
+        if matches:
+            item = max(matches, key=lambda row: row.get("population") or 0)
+            name = item["name"]
+            admin = item.get("admin1") or ""
+            full_name = ", ".join(part for part in (name, admin, "Việt Nam") if part)
+            return float(item["latitude"]), float(item["longitude"]), full_name
+    except (requests.RequestException, ValueError, TypeError, KeyError) as exc:
+        print(f"[Geocode] Open-Meteo unavailable for {query!r}: {exc}")
+
+    # Province names have reliable coordinates in the project's map data.
+    try:
+        from src.api.utils import load_provinces_yaml, load_province_centroids
+        for province in load_provinces_yaml().get("provinces", []):
+            name = province.get("name") or ""
+            if _plain_place(name) == plain_city:
+                lat, lon = load_province_centroids()[name]
+                return lat, lon, f"{name}, Việt Nam"
+    except (KeyError, OSError, ValueError) as exc:
+        print(f"[Geocode] Local province lookup failed for {query!r}: {exc}")
+    return None, None, None
+
+
 def search_location_google(query: str) -> Tuple[Optional[float], Optional[float], Optional[str]]:
-    """
-    Returns: (lat, lon, full_name)
-    Results cached for 24h to save SerpAPI quota.
-    """
+    """Return a resolved place, using public geocoding when SerpAPI is unavailable."""
     cached = _serpapi_geo_cache_get(query)
     if cached is not None:
         return cached
 
-    params = {
-        "engine": "google_maps",
-        "q": query,
-        "type": "search",
-        "hl": "vi",
-        "gl": "vn",
-    }
+    if _keys():
+        params = {"engine": "google_maps", "q": query, "type": "search", "hl": "vi", "gl": "vn"}
+        try:
+            data = _call_serpapi(params)
+            item = data.get("place_results") if isinstance(data.get("place_results"), dict) else None
+            if not item and isinstance(data.get("local_results"), list) and data["local_results"]:
+                item = data["local_results"][0]
+            if item:
+                gps = item.get("gps_coordinates") or {}
+                lat, lon = gps.get("latitude"), gps.get("longitude")
+                if lat is not None and lon is not None:
+                    title = item.get("title") or query
+                    address = item.get("address") or ""
+                    full_name = f"{title}, {address}".strip(", ") if address and address not in title else title
+                    result = (float(lat), float(lon), full_name)
+                    _serpapi_geo_cache_set(query, result)
+                    return result
+        except (RuntimeError, ValueError, TypeError) as exc:
+            print(f"[Geocode] SerpAPI unavailable, using public lookup: {exc}")
 
-    try:
-        data = _call_serpapi(params)
-        item = None
-        if isinstance(data.get("place_results"), dict):
-            item = data["place_results"]
-        elif isinstance(data.get("local_results"), list) and data["local_results"]:
-            item = data["local_results"][0]
-
-        if not item:
-            return None, None, None
-
-        gps = item.get("gps_coordinates") or {}
-        lat = gps.get("latitude")
-        lon = gps.get("longitude")
-        if lat is None or lon is None:
-            return None, None, None
-
-        title = item.get("title") or query
-        address = item.get("address") or ""
-        full_name = f"{title}, {address}".strip(", ") if address and address not in title else title
-        result = (float(lat), float(lon), full_name)
+    result = _public_geocode(query)
+    if result[0] is not None:
         _serpapi_geo_cache_set(query, result)
-        return result
-    except Exception:
-        return None, None, None
+    return result
 
 
 def _extract_polyline(route: Dict[str, Any]) -> Optional[str]:
@@ -371,7 +450,12 @@ def _process_directions(directions_result: dict) -> dict:
                 "status": status,
                 "status_emoji": _emoji(status),
                 "traffic_score": traffic_score_0_10(ratio, speed_kmh),
+                "traffic_available": True,
+                "route_available": True,
+                "traffic_source": "serpapi",
                 "route_polyline": route_polyline,
+                "route_polyline_provider": "serpapi" if route_polyline else None,
+                "route_polyline_type": "polyline" if route_polyline else None,
                 "reported_time_normal_min": int(time_normal),
                 "reported_time_traffic_min": int(time_traffic),
             }
@@ -380,6 +464,59 @@ def _process_directions(directions_result: dict) -> dict:
             # Dòng except này là bắt buộc phải có để không bị lỗi gạch đỏ
             print(f"❌ [LỖI TRONG _process_directions]: {e}")
             return {"error": str(e)}
+
+
+def _route_without_live_traffic(lat1: float, lon1: float, lat2: float, lon2: float) -> dict:
+    """Try TrackAsia, then OSRM; neither provider supplies live congestion here."""
+    coords = f"{lon1:.6f},{lat1:.6f};{lon2:.6f},{lat2:.6f}"
+    providers = []
+    if TRACKASIA_KEY:
+        providers.append((
+            "trackasia", f"{TRACKASIA_BASE}/route/v1/car/{coords}.json",
+            {"overview": "full", "geometries": "polyline", "key": TRACKASIA_KEY}, "polyline",
+        ))
+    providers.append((
+        "osrm", f"{OSRM_ROUTE_URL}/{coords}",
+        {"overview": "full", "geometries": "polyline6"}, "polyline6",
+    ))
+    for source, url, params, geometry_type in providers:
+        try:
+            response = requests.get(url, params=params, timeout=(4, 8))
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict):
+                continue
+            routes = payload.get("routes") or []
+            if payload.get("code") != "Ok" or not routes:
+                continue
+            route = routes[0]
+            distance_km = float(route["distance"]) / 1000.0
+            duration_min = float(route["duration"]) / 60.0
+            if not (0 < distance_km < 20000 and 0 < duration_min < 100000):
+                continue
+            geometry = route.get("geometry")
+            return {
+                "distance_km": round(distance_km, 1),
+                "time_normal_min": max(1, round(duration_min)),
+                "time_traffic_min": None,
+                "delay_min": None,
+                "ratio": None,
+                "speed_kmh": None,
+                "status": "unknown",
+                "status_emoji": "⚪",
+                "traffic_score": None,
+                "traffic_available": False,
+                "route_available": True,
+                "traffic_source": source,
+                "route_polyline": geometry if isinstance(geometry, str) and geometry else None,
+                "route_polyline_provider": source if isinstance(geometry, str) and geometry else None,
+                "route_polyline_type": geometry_type if isinstance(geometry, str) and geometry else None,
+                "start_address": f"{lat1:.6f},{lon1:.6f}",
+                "end_address": f"{lat2:.6f},{lon2:.6f}",
+            }
+        except (requests.RequestException, ValueError, TypeError, KeyError) as exc:
+            print(f"[Traffic] {source} route unavailable: {type(exc).__name__}")
+    return unavailable_route()
 
 
 def check_route_traffic_google(
@@ -407,16 +544,15 @@ def check_route_traffic_google(
         "gl": "vn",
     }
 
-    try:
-        data = _call_serpapi(params)
-        result = _process_directions(data)
-
-        if result and not result.get("error"):
-            result["start_address"] = start_coords
-            result["end_address"] = end_coords
-            return result
-
-        return result
-
-    except Exception as e:
-        return {"error": str(e)}
+    if _keys():
+        try:
+            data = _call_serpapi(params)
+            result = _process_directions(data)
+            if result and not result.get("error"):
+                result["start_address"] = start_coords
+                result["end_address"] = end_coords
+                return result
+            print(f"[Traffic] SerpAPI route unavailable: {result.get('error') if result else 'empty response'}")
+        except RuntimeError as exc:
+            print(f"[Traffic] SerpAPI route unavailable: {exc}")
+    return _route_without_live_traffic(lat1, lon1, lat2, lon2)

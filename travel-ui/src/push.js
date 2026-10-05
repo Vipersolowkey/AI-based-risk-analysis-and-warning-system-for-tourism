@@ -18,6 +18,22 @@ export async function registerServiceWorker() {
   return navigator.serviceWorker.register("/sw.js");
 }
 
+function subscriptionUsesKey(subscription, publicKey) {
+  const expected = urlBase64ToUint8Array(publicKey);
+  const current = new Uint8Array(subscription.options?.applicationServerKey || new ArrayBuffer(0));
+  return current.length === expected.length
+    && current.every((byte, index) => byte === expected[index]);
+}
+
+export async function getCurrentPushSubscription() {
+  if (!isPushSupported()) return null;
+  const registration = await navigator.serviceWorker.getRegistration("/");
+  const subscription = registration ? await registration.pushManager.getSubscription() : null;
+  if (!subscription) return null;
+  const { publicKey } = await apiGet("/api/notifications/vapid-public-key");
+  return publicKey && subscriptionUsesKey(subscription, publicKey) ? subscription : null;
+}
+
 /**
  * Requests Notification permission, subscribes to push, and registers the
  * subscription with the backend for the given watched destination.
@@ -27,19 +43,27 @@ export async function registerServiceWorker() {
 export async function subscribeToPush(token, { destination, lat, lon } = {}) {
   if (!isPushSupported()) return false;
 
+  const { publicKey } = await apiGet("/api/notifications/vapid-public-key");
+  if (!publicKey) return false;
   const permission = await Notification.requestPermission();
   if (permission !== "granted") return false;
 
-  const { publicKey } = await apiGet("/api/notifications/vapid-public-key");
-  if (!publicKey) return false; // server has no VAPID key configured yet
-
   const registration = await registerServiceWorker();
   if (!registration) return false;
-
-  const subscription = await registration.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: urlBase64ToUint8Array(publicKey),
-  });
+  const applicationServerKey = urlBase64ToUint8Array(publicKey);
+  let subscription = await registration.pushManager.getSubscription();
+  if (subscription) {
+    if (!subscriptionUsesKey(subscription, publicKey)) {
+      await subscription.unsubscribe();
+      subscription = null;
+    }
+  }
+  if (!subscription) {
+    subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey,
+    });
+  }
   const json = subscription.toJSON();
 
   await apiPost(
@@ -47,6 +71,14 @@ export async function subscribeToPush(token, { destination, lat, lon } = {}) {
     { endpoint: json.endpoint, keys: json.keys, destination, lat, lon },
     token
   );
+  return true;
+}
+
+export async function unsubscribeFromPush(token) {
+  const subscription = await getCurrentPushSubscription();
+  if (!subscription) return false;
+  await apiPost("/api/notifications/unsubscribe", { endpoint: subscription.endpoint }, token);
+  await subscription.unsubscribe();
   return true;
 }
 

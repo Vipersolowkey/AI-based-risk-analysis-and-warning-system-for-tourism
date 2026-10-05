@@ -1,4 +1,6 @@
 import os
+import inspect
+from pathlib import Path
 import pandas as pd
 import numpy as np
 from sklearn.metrics import precision_recall_fscore_support, average_precision_score
@@ -11,13 +13,30 @@ from transformers import (
     TrainingArguments,
     Trainer,
 )
+from src.train.vietnamese import segment_for_phobert
 
 MODEL_NAME = "vinai/phobert-base"
-TRAIN_CSV = "data/datasets/stage1_train.csv"
-VAL_CSV   = "data/datasets/stage1_val.csv"
-OUT_DIR   = "data/outputs/checkpoints/stage1_risk_any"
+ROOT = Path(__file__).resolve().parents[2]
+TRAIN_CSV = str(ROOT / "data" / "datasets" / "stage1_train.csv")
+VAL_CSV   = str(ROOT / "data" / "datasets" / "stage1_val.csv")
+OUT_DIR   = str(ROOT / "data" / "outputs" / "checkpoints" / "stage1_risk_any")
 
 MAX_LEN = 256
+
+
+def load_training_splits():
+    """Remove repeated articles and exact overlap between supplied splits."""
+    train_df = pd.read_csv(TRAIN_CSV).dropna(subset=["id", "input_text", "label"])
+    val_df = pd.read_csv(VAL_CSV).dropna(subset=["id", "input_text", "label"])
+    train_df = train_df.drop_duplicates(subset=["id"]).drop_duplicates(subset=["input_text"])
+    val_df = val_df.drop_duplicates(subset=["id"]).drop_duplicates(subset=["input_text"])
+    val_df = val_df[
+        ~val_df["id"].isin(train_df["id"])
+        & ~val_df["input_text"].isin(train_df["input_text"])
+    ]
+    if train_df.empty or val_df.empty:
+        raise ValueError("Training or independent validation split is empty")
+    return train_df.reset_index(drop=True), val_df.reset_index(drop=True)
 
 
 def compute_metrics(eval_pred):
@@ -102,8 +121,8 @@ def make_training_args():
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
 
-    train_df = pd.read_csv(TRAIN_CSV)
-    val_df   = pd.read_csv(VAL_CSV)
+    train_df, val_df = load_training_splits()
+    print(f"Unique train articles: {len(train_df)}, independent validation articles: {len(val_df)}")
 
     # class imbalance -> pos_weight
     pos = max(1, int(train_df["label"].sum()))
@@ -114,7 +133,7 @@ def main():
 
     def tok(batch):
         return tokenizer(
-            batch["input_text"],
+            [segment_for_phobert(text) for text in batch["input_text"]],
             truncation=True,
             max_length=MAX_LEN,
             padding="max_length",
@@ -132,8 +151,9 @@ def main():
     model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=1)
 
     class WeightedBCETrainer(Trainer):
-        def compute_loss(self, model, inputs, return_outputs=False):
-            labels = inputs.pop("labels").float().view(-1, 1)
+        def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
+            labels = inputs["labels"].float().view(-1, 1)
+            inputs = {key: value for key, value in inputs.items() if key != "labels"}
             outputs = model(**inputs)
             logits = outputs.logits
             loss_fct = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight.to(logits.device))
@@ -143,12 +163,13 @@ def main():
     args = make_training_args()
 
     # if args doesn't support evaluation at all, passing eval_dataset is still OK usually.
+    tokenizer_argument = "processing_class" if "processing_class" in inspect.signature(Trainer.__init__).parameters else "tokenizer"
     trainer = WeightedBCETrainer(
         model=model,
         args=args,
         train_dataset=train_ds,
         eval_dataset=val_ds,
-        tokenizer=tokenizer,
+        **{tokenizer_argument: tokenizer},
         compute_metrics=compute_metrics,
     )
 

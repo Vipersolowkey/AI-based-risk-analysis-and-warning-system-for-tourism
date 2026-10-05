@@ -19,9 +19,12 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
 
 FEATURES_PATH = os.path.join(PROJECT_ROOT, "data", "features", "articles_features.jsonl")
+NEWS_PREDICTIONS_PATH = (os.getenv("NEWS_PREDICTIONS_PATH") or "").strip()
+PHOBERT_PREDICTIONS_PATH = os.path.join(PROJECT_ROOT, "data", "outputs", "predictions.jsonl")
+BASELINE_PREDICTIONS_PATH = os.path.join(PROJECT_ROOT, "data", "outputs", "news_baseline_predictions.jsonl")
 PROVINCES_CFG = os.path.join(PROJECT_ROOT, "configs", "provinces.yaml")
 WEATHER_MODEL_PATH = os.path.join(
-    PROJECT_ROOT, "src", "integrations", "weather", "weather_risk_v4_master.pkl"
+    PROJECT_ROOT, "src", "integrations", "weather", "weather_risk_v5_classifier.pkl"
 )
 WEATHER_MODEL_FEATURES_PATH = os.path.join(
     PROJECT_ROOT, "src", "integrations", "weather", "model_features.json"
@@ -30,14 +33,13 @@ WEATHER_MODEL_FEATURES_PATH = os.path.join(
 # ============================================================
 # TRACKASIA
 # ============================================================
-TRACKASIA_KEY_DEFAULT = "0d97cf1bb1770278574c478da1598736f7"
-TRACKASIA_KEY = (os.getenv("TRACKASIA_KEY") or TRACKASIA_KEY_DEFAULT).strip()
+TRACKASIA_KEY = (os.getenv("TRACKASIA_KEY") or "").strip()
 TRACKASIA_BASE = (os.getenv("TRACKASIA_BASE") or "https://maps.track-asia.com").rstrip("/")
 
 # ============================================================
 # AUTH / JWT
 # ============================================================
-JWT_SECRET_DEFAULT = "dev-insecure-change-me"
+JWT_SECRET_DEFAULT = "travel-risk-local-development-secret-change-in-env"
 JWT_SECRET = (os.getenv("JWT_SECRET") or JWT_SECRET_DEFAULT).strip()
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES") or "1440")
 
@@ -70,6 +72,7 @@ RISK_GROUPS = [
     "Natural_Disaster",
     "Fire_Accident_Risk",
 ]
+NEWS_RISK_MAX_AGE_DAYS = int(os.getenv("NEWS_RISK_MAX_AGE_DAYS") or "30")
 
 # ============================================================
 # PLACE ALIASES  (input key -> canonical Vietnamese name)

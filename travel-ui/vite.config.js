@@ -3,6 +3,19 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          const path = id.replaceAll("\\", "/");
+          if (path.includes("/node_modules/@mui/icons-material/")) return "mui-icons";
+          if (path.includes("/node_modules/@mui/") || path.includes("/node_modules/@emotion/")) return "mui-core";
+          if (["/react/", "/react-dom/", "/scheduler/"].some((part) => path.includes(`/node_modules${part}`))) return "react-core";
+          return undefined;
+        },
+      },
+    },
+  },
   server: {
     proxy: {
       "/api": {
@@ -25,7 +38,7 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
-      "/map": {
+      "/map/": {
         target: "http://127.0.0.1:8000",
         changeOrigin: true,
         secure: false,
@@ -35,12 +48,12 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
-      "/traffic": {
+      "/traffic/": {
         target: "http://127.0.0.1:8000",
         changeOrigin: true,
         secure: false,
       },
-      "/weather": {
+      "/weather/": {
         target: "http://127.0.0.1:8000",
         changeOrigin: true,
         secure: false,

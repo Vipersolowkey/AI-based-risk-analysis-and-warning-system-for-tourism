@@ -14,3 +14,4 @@ torch
 transformers==4.44.2
 datasets==2.20.0
 accelerate>=0.33.0
+pyvi==0.1.1
