@@ -1,0 +1,325 @@
+version: "1.0"
+
+# =========================
+# 1) Context: xác định bài có liên quan du lịch
+# =========================
+tourism_context:
+  must_any:
+    - "du lịch"
+    - "khách du lịch"
+    - "tour"
+    - "lữ hành"
+    - "điểm du lịch"
+    - "điểm đến"
+    - "tham quan"
+    - "nghỉ dưỡng"
+    - "homestay"
+    - "resort"
+    - "khách sạn"
+    - "nhà nghỉ"
+    - "lưu trú"
+    - "bãi biển"
+    - "khu du lịch"
+    - "danh lam"
+    - "di tích"
+    - "check-in"
+    - "phượt"
+    - "leo núi"
+    - "trekking"
+    - "camping"
+    - "cắm trại"
+    - "tàu du lịch"
+    - "thuyền du lịch"
+    - "cano"
+    - "cáp treo"
+    - "vé tham quan"
+    - "bến tàu"
+    - "bến xe"
+    - "sân bay"
+    - "ga tàu"
+    - "hướng dẫn viên"
+    - "HDV"
+    - "dịch vụ du lịch"
+
+  # các từ thường làm nhiễu (bài “du lịch” nhưng không phải rủi ro)
+  soft_negative_any:
+    - "review"
+    - "kinh nghiệm"
+    - "gợi ý"
+    - "cẩm nang"
+    - "top"
+    - "combo"
+    - "deal"
+    - "khuyến mãi"
+    - "lịch trình"
+    - "món ngon"
+    - "ăn gì"
+    - "ở đâu"
+    - "chơi gì"
+
+# =========================
+# 2) Risk groups (5 nhóm chính)
+# Mỗi keyword có thể là cụm từ, regex-lite (dạng chứa dấu * không hỗ trợ ở đây),
+# nên bạn cứ dùng dạng cụm từ phổ biến.
+# =========================
+risk_keywords:
+  Pricing_Issue:
+    # "chặt chém" / giá cả / thu phí
+    - "chặt chém"
+    - "tăng giá"
+    - "đội giá"
+    - "nâng giá"
+    - "hét giá"
+    - "phí vô lý"
+    - "thu phí"
+    - "phụ thu"
+    - "thu thêm tiền"
+    - "thu tiền gửi xe"
+    - "bãi giữ xe thu"
+    - "giá vé tăng"
+    - "bán vé cao"
+    - "vé giả"
+    - "lừa mua vé"
+    - "ép mua"
+    - "mồi chài"
+    - "chặt chém du khách"
+    - "bán hàng rong chèo kéo"
+    - "chào mời"
+    - "chèo kéo"
+    - "cò mồi"
+    - "cò tour"
+    - "cò vé"
+    - "taxi dù"
+    - "xe dù"
+    - "điều chỉnh giá"
+    - "niêm yết giá không đúng"
+    - "không niêm yết giá"
+    - "bảng giá không rõ ràng"
+    - "bán sai giá"
+    - "tính tiền cao"
+    - "tính phí phát sinh"
+    - "dịch vụ kém"
+    - "bị 'chém'"
+
+  Environmental_Cleanliness:
+    # vệ sinh / môi trường / ô nhiễm / thực phẩm
+    - "ô nhiễm"
+    - "ô nhiễm môi trường"
+    - "rác"
+    - "rác thải"
+    - "ngập rác"
+    - "xả rác"
+    - "mùi hôi"
+    - "nước thải"
+    - "ô nhiễm nguồn nước"
+    - "nước biển đục"
+    - "tảo nở hoa"
+    - "cá chết"
+    - "mất vệ sinh"
+    - "vệ sinh kém"
+    - "nhà vệ sinh bẩn"
+    - "an toàn thực phẩm"
+    - "thực phẩm bẩn"
+    - "ngộ độc"
+    - "ngộ độc thực phẩm"
+    - "tiêu chảy"
+    - "dịch bệnh"
+    - "sốt xuất huyết"
+    - "cúm"
+    - "covid"
+    - "cảnh báo y tế"
+    - "cấm tắm"
+    - "cảnh báo chất lượng nước"
+    - "đóng cửa bãi biển"
+    - "đình chỉ cơ sở"
+    - "xử phạt về vệ sinh"
+
+  Safety_Security:
+    # lừa đảo / trộm cắp / bạo lực / quấy rối / an ninh trật tự
+    - "lừa đảo"
+    - "chiếm đoạt"
+    - "mạo danh"
+    - "hack"
+    - "đánh cắp"
+    - "trộm"
+    - "trộm cắp"
+    - "móc túi"
+    - "cướp"
+    - "cướp giật"
+    - "giật điện thoại"
+    - "giật túi"
+    - "lừa mua tour"
+    - "tour '0 đồng'"
+    - "tour 0 đồng"
+    - "tour chui"
+    - "dẫn khách trái phép"
+    - "chặt chém taxi"
+    - "bẫy taxi"
+    - "tài xế"
+    - "quấy rối"
+    - "xâm hại"
+    - "sàm sỡ"
+    - "hiếp dâm"
+    - "bạo lực"
+    - "đánh nhau"
+    - "gây rối"
+    - "mất an ninh"
+    - "mất trật tự"
+    - "an ninh trật tự"
+    - "đe dọa"
+    - "tống tiền"
+    - "bắt cóc"
+    - "lừa đặt phòng"
+    - "đặt phòng ảo"
+    - "scam"
+    - "bị lừa"
+    - "cảnh báo du khách"
+    - "cảnh báo lừa đảo"
+    - "công an vào cuộc"
+    - "khởi tố"
+    - "bắt giữ"
+
+  Natural_Disaster:
+    # thiên tai / thời tiết cực đoan / địa chất
+    - "bão"
+    - "áp thấp"
+    - "mưa lớn"
+    - "mưa to"
+    - "lũ"
+    - "lũ lụt"
+    - "ngập"
+    - "ngập lụt"
+    - "sạt lở"
+    - "sạt lở đất"
+    - "sạt lở bờ biển"
+    - "sạt lở taluy"
+    - "lũ quét"
+    - "sóng lớn"
+    - "triều cường"
+    - "dông lốc"
+    - "tố lốc"
+    - "lốc xoáy"
+    - "sét"
+    - "nắng nóng"
+    - "rét đậm"
+    - "rét hại"
+    - "băng tuyết"
+    - "động đất"
+    - "núi lửa"
+    - "cháy rừng"
+    - "hạn hán"
+    - "thiên tai"
+    - "cảnh báo thời tiết"
+    - "cấm biển"
+    - "tạm dừng đón khách"
+    - "đóng cửa điểm du lịch"
+    - "sơ tán"
+    - "cứu hộ"
+    - "cứu nạn"
+
+  Fire_Accident_Risk:
+    # cháy nổ / tai nạn giao thông / tai nạn du lịch / đuối nước
+    - "cháy"
+    - "hỏa hoạn"
+    - "cháy nổ"
+    - "nổ"
+    - "rò rỉ gas"
+    - "chập điện"
+    - "bình gas"
+    - "PCCC"
+    - "phòng cháy"
+    - "chữa cháy"
+    - "tai nạn"
+    - "tai nạn giao thông"
+    - "va chạm"
+    - "lật xe"
+    - "xe lao xuống"
+    - "mất lái"
+    - "đâm"
+    - "tông"
+    - "đuối nước"
+    - "chết đuối"
+    - "lật thuyền"
+    - "lật tàu"
+    - "chìm tàu"
+    - "chìm thuyền"
+    - "tàu gặp nạn"
+    - "thuyền gặp nạn"
+    - "cano gặp nạn"
+    - "rơi"
+    - "rơi từ"
+    - "trượt"
+    - "trượt chân"
+    - "ngã"
+    - "tai nạn leo núi"
+    - "tai nạn trekking"
+    - "tai nạn dù lượn"
+    - "dù lượn"
+    - "tai nạn cáp treo"
+    - "sự cố cáp treo"
+    - "sập"
+    - "sập cầu"
+    - "sập lan can"
+    - "sập công trình"
+    - "ngạt"
+    - "ngộ độc khí"
+    - "cấp cứu"
+    - "nhập viện"
+    - "cứu hộ"
+    - "cứu nạn"
+
+# =========================
+# 3) Fatality / severity boosters (để tính điểm heatmap)
+# =========================
+fatality_keywords:
+  - "tử vong"
+  - "chết"
+  - "thiệt mạng"
+  - "tử nạn"
+  - "tửong vong"   # lỗi chính tả hay gặp
+  - "bị thương nặng"
+  - "bị thương"
+  - "nguy kịch"
+  - "mất tích"
+  - "hôn mê"
+  - "đa chấn thương"
+  - "cứu chữa"
+  - "khẩn cấp"
+  - "thảm kịch"
+  - "thảm họa"
+
+# =========================
+# 4) Keep / Drop heuristics (đỡ mất bài khi cào nhiều)
+# =========================
+filtering:
+  # nếu bài match risk_keywords >= ngưỡng thì giữ, kể cả tourism_context yếu
+  risk_min_hits_keep: 1
+
+  # nếu match tourism_context >= ngưỡng thì coi là bài du lịch
+  tourism_min_hits: 1
+
+  # bỏ bài nếu rơi vào “chỉ là cẩm nang/khuyến mãi” và không có risk
+  drop_if_only_soft_negative: true
+
+# =========================
+# 5) Scoring rules để ra "risk_score" (cho heatmap)
+# =========================
+scoring:
+  # điểm nền cho mỗi nhóm risk match
+  group_base_score:
+    Pricing_Issue: 2.0
+    Environmental_Cleanliness: 2.0
+    Safety_Security: 2.5
+    Natural_Disaster: 2.5
+    Fire_Accident_Risk: 3.0
+
+  # mỗi hit keyword thêm bao nhiêu (cap để tránh bài dài bị inflate)
+  per_hit_add: 0.5
+  per_group_hit_cap: 6
+
+  # fatality booster
+  fatality_boost: 4.0
+  fatality_cap: 2   # tối đa 2 lần boost
+
+  # tổng score cap
+  total_score_cap: 20.0

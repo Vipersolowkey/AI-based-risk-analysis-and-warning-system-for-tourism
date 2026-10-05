@@ -1,0 +1,397 @@
+provinces:
+  - name: "Hà Nội"
+    code: "HN"
+    lat: 21.0278
+    lon: 105.8342
+    aliases: ["Ha Noi", "Hanoi", "Thủ đô", "Thu do"]
+
+  - name: "TP Hồ Chí Minh"
+    code: "HCM"
+    lat: 10.7769
+    lon: 106.7009
+    aliases: ["TPHCM", "HCM", "Sai Gon", "Saigon", "Ho Chi Minh", "TP Ho Chi Minh"]
+
+  - name: "Đà Nẵng"
+    code: "DN"
+    lat: 16.0544
+    lon: 108.2022
+    aliases: ["Da Nang", "Danang"]
+
+  - name: "Hải Phòng"
+    code: "HP"
+    lat: 20.8449
+    lon: 106.6881
+    aliases: ["Hai Phong", "Haiphong"]
+
+  - name: "Cần Thơ"
+    code: "CT"
+    lat: 10.0452
+    lon: 105.7469
+    aliases: ["Can Tho", "Cantho"]
+
+  - name: "An Giang"
+    code: "AG"
+    lat: 10.5216
+    lon: 105.1259
+    aliases: ["An Giang", "AnGiang"]
+
+  - name: "Bà Rịa - Vũng Tàu"
+    code: "BV"
+    lat: 10.5417
+    lon: 107.2420
+    aliases: ["BRVT", "Ba Ria Vung Tau", "Vung Tau", "Bà Rịa Vũng Tàu"]
+
+  - name: "Bắc Giang"
+    code: "BG"
+    lat: 21.2731
+    lon: 106.1946
+    aliases: ["Bac Giang"]
+
+  - name: "Bắc Kạn"
+    code: "BK"
+    lat: 22.1470
+    lon: 105.8348
+    aliases: ["Bac Kan", "Bắc Cạn"]
+
+  - name: "Bạc Liêu"
+    code: "BL"
+    lat: 9.2940
+    lon: 105.7216
+    aliases: ["Bac Lieu"]
+
+  - name: "Bắc Ninh"
+    code: "BN"
+    lat: 21.1861
+    lon: 106.0763
+    aliases: ["Bac Ninh"]
+
+  - name: "Bến Tre"
+    code: "BT"
+    lat: 10.2434
+    lon: 106.3759
+    aliases: ["Ben Tre"]
+
+  - name: "Bình Định"
+    code: "BDI"
+    lat: 13.7820
+    lon: 109.2191
+    aliases: ["Binh Dinh", "Quy Nhon", "QuyNhon"]
+
+  - name: "Bình Dương"
+    code: "BDU"
+    lat: 11.3254
+    lon: 106.4770
+    aliases: ["Binh Duong"]
+
+  - name: "Bình Phước"
+    code: "BPC"
+    lat: 11.7512
+    lon: 106.7235
+    aliases: ["Binh Phuoc"]
+
+  - name: "Bình Thuận"
+    code: "BTH"
+    lat: 10.9280
+    lon: 108.1020
+    aliases: ["Binh Thuan", "Phan Thiet", "Mui Ne", "MuiNe"]
+
+  - name: "Cà Mau"
+    code: "CM"
+    lat: 9.1769
+    lon: 105.1524
+    aliases: ["Ca Mau"]
+
+  - name: "Cao Bằng"
+    code: "CB"
+    lat: 22.6657
+    lon: 106.2579
+    aliases: ["Cao Bang"]
+
+  - name: "Đắk Lắk"
+    code: "DLK"
+    lat: 12.7100
+    lon: 108.2378
+    aliases: ["Dak Lak", "Buon Ma Thuot", "BuonMaThuot"]
+
+  - name: "Đắk Nông"
+    code: "DKN"
+    lat: 12.2646
+    lon: 107.6098
+    aliases: ["Dak Nong"]
+
+  - name: "Điện Biên"
+    code: "DB"
+    lat: 21.3860
+    lon: 103.0230
+    aliases: ["Dien Bien", "Dien Bien Phu", "DienBienPhu"]
+
+  - name: "Đồng Nai"
+    code: "DNA"
+    lat: 11.0686
+    lon: 107.1676
+    aliases: ["Dong Nai", "Bien Hoa", "BienHoa"]
+
+  - name: "Đồng Tháp"
+    code: "DT"
+    lat: 10.4938
+    lon: 105.6882
+    aliases: ["Dong Thap"]
+
+  - name: "Gia Lai"
+    code: "GL"
+    lat: 13.8079
+    lon: 108.1094
+    aliases: ["Gia Lai", "Pleiku"]
+
+  - name: "Hà Giang"
+    code: "HG"
+    lat: 22.8026
+    lon: 104.9784
+    aliases: ["Ha Giang"]
+
+  - name: "Hà Nam"
+    code: "HNA"
+    lat: 20.5835
+    lon: 105.9220
+    aliases: ["Ha Nam"]
+
+  - name: "Hà Tĩnh"
+    code: "HT"
+    lat: 18.3428
+    lon: 105.9057
+    aliases: ["Ha Tinh"]
+
+  - name: "Hải Dương"
+    code: "HD"
+    lat: 20.9373
+    lon: 106.3146
+    aliases: ["Hai Duong"]
+
+  - name: "Hậu Giang"
+    code: "HGI"
+    lat: 9.7845
+    lon: 105.4700
+    aliases: ["Hau Giang"]
+
+  - name: "Hòa Bình"
+    code: "HB"
+    lat: 20.8172
+    lon: 105.3376
+    aliases: ["Hoa Binh"]
+
+  - name: "Hưng Yên"
+    code: "HY"
+    lat: 20.6464
+    lon: 106.0511
+    aliases: ["Hung Yen"]
+
+  - name: "Khánh Hòa"
+    code: "KH"
+    lat: 12.2585
+    lon: 109.0526
+    aliases: ["Khanh Hoa", "Nha Trang", "Cam Ranh", "CamRanh"]
+
+  - name: "Kiên Giang"
+    code: "KG"
+    lat: 9.8249
+    lon: 105.1259
+    aliases: ["Kien Giang", "Phu Quoc", "PhuQuoc", "Rach Gia", "RachGia"]
+
+  - name: "Kon Tum"
+    code: "KT"
+    lat: 14.3497
+    lon: 108.0000
+    aliases: ["Kon Tum", "Kontum"]
+
+  - name: "Lai Châu"
+    code: "LC"
+    lat: 22.3862
+    lon: 103.4703
+    aliases: ["Lai Chau"]
+
+  - name: "Lâm Đồng"
+    code: "LD"
+    lat: 11.5753
+    lon: 108.1429
+    aliases: ["Lam Dong", "Da Lat", "Dalat"]
+
+  - name: "Lạng Sơn"
+    code: "LS"
+    lat: 21.8537
+    lon: 106.7610
+    aliases: ["Lang Son"]
+
+  - name: "Lào Cai"
+    code: "LCA"
+    lat: 22.3381
+    lon: 104.1487
+    aliases: ["Lao Cai", "Sa Pa", "Sapa"]
+
+  - name: "Long An"
+    code: "LA"
+    lat: 10.6956
+    lon: 106.2431
+    aliases: ["Long An"]
+
+  - name: "Nam Định"
+    code: "ND"
+    lat: 20.4388
+    lon: 106.1621
+    aliases: ["Nam Dinh"]
+
+  - name: "Nghệ An"
+    code: "NA"
+    lat: 19.2342
+    lon: 104.9200
+    aliases: ["Nghe An", "Vinh"]
+
+  - name: "Ninh Bình"
+    code: "NB"
+    lat: 20.2530
+    lon: 105.9740
+    aliases: ["Ninh Binh", "Trang An", "Tam Coc", "TamCoc"]
+
+  - name: "Ninh Thuận"
+    code: "NT"
+    lat: 11.6739
+    lon: 108.8620
+    aliases: ["Ninh Thuan", "Phan Rang", "PhanRang"]
+
+  - name: "Phú Thọ"
+    code: "PT"
+    lat: 21.3227
+    lon: 105.4016
+    aliases: ["Phu Tho"]
+
+  - name: "Phú Yên"
+    code: "PY"
+    lat: 13.0882
+    lon: 109.0929
+    aliases: ["Phu Yen", "Tuy Hoa", "TuyHoa"]
+
+  - name: "Quảng Bình"
+    code: "QB"
+    lat: 17.6103
+    lon: 106.3487
+    aliases: ["Quang Binh", "Phong Nha", "PhongNha"]
+
+  - name: "Quảng Nam"
+    code: "QN"
+    lat: 15.5394
+    lon: 108.0191
+    aliases: ["Quang Nam", "Hoi An", "HoiAn"]
+
+  - name: "Quảng Ngãi"
+    code: "QNG"
+    lat: 15.1214
+    lon: 108.8044
+    aliases: ["Quang Ngai", "Ly Son", "LySon"]
+
+  - name: "Quảng Ninh"
+    code: "QNI"
+    lat: 21.0064
+    lon: 107.2925
+    aliases: ["Quang Ninh", "Ha Long", "Halong"]
+
+  - name: "Quảng Trị"
+    code: "QT"
+    lat: 16.7943
+    lon: 106.9634
+    aliases: ["Quang Tri"]
+
+  - name: "Sóc Trăng"
+    code: "ST"
+    lat: 9.6004
+    lon: 105.9739
+    aliases: ["Soc Trang"]
+
+  - name: "Sơn La"
+    code: "SL"
+    lat: 21.1023
+    lon: 103.7289
+    aliases: ["Son La", "Moc Chau", "MocChau"]
+
+  - name: "Tây Ninh"
+    code: "TN"
+    lat: 11.3352
+    lon: 106.1099
+    aliases: ["Tay Ninh", "Nui Ba Den", "NuiBaDen"]
+
+  - name: "Thái Bình"
+    code: "TB"
+    lat: 20.4463
+    lon: 106.3366
+    aliases: ["Thai Binh"]
+
+  - name: "Thái Nguyên"
+    code: "TNG"
+    lat: 21.5672
+    lon: 105.8252
+    aliases: ["Thai Nguyen"]
+
+  - name: "Thanh Hóa"
+    code: "TH"
+    lat: 19.8067
+    lon: 105.7852
+    aliases: ["Thanh Hoa", "Sam Son", "SamSon"]
+
+  - name: "Thừa Thiên Huế"
+    code: "TTH"
+    lat: 16.4637
+    lon: 107.5909
+    aliases: ["Thua Thien Hue", "Hue"]
+
+  - name: "Tiền Giang"
+    code: "TG"
+    lat: 10.4493
+    lon: 106.3421
+    aliases: ["Tien Giang", "My Tho", "MyTho"]
+
+  - name: "Trà Vinh"
+    code: "TV"
+    lat: 9.9347
+    lon: 106.3456
+    aliases: ["Tra Vinh"]
+
+  - name: "Tuyên Quang"
+    code: "TQ"
+    lat: 21.8236
+    lon: 105.2143
+    aliases: ["Tuyen Quang"]
+
+  - name: "Vĩnh Long"
+    code: "VL"
+    lat: 10.2537
+    lon: 105.9722
+    aliases: ["Vinh Long"]
+
+  - name: "Vĩnh Phúc"
+    code: "VP"
+    lat: 21.3609
+    lon: 105.5474
+    aliases: ["Vinh Phuc", "Tam Dao", "TamDao"]
+
+  - name: "Yên Bái"
+    code: "YB"
+    lat: 21.7168
+    lon: 104.8986
+    aliases: ["Yen Bai", "Mu Cang Chai", "MuCangChai"]
+
+  - name: "Bình Long (alias về Bình Phước)"
+    code: "BLA"
+    lat: 11.6470
+    lon: 106.6050
+    aliases: ["Binh Long"]
+
+  - name: "Bắc Trung Bộ (alias fallback)"
+    code: "FALLBACK_1"
+    lat: 18.0000
+    lon: 105.5000
+    aliases: ["Bac Trung Bo"]
+
+  # ====== 11 tỉnh còn thiếu phải thêm trong danh sách 63 ======
+  - name: "Bắc Trung Bộ"
+    code: "TEMP"
+    lat: 18.0000
+    lon: 105.5000
+    aliases: []

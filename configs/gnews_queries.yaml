@@ -1,0 +1,48 @@
+gnews:
+  language: "vi"
+  region: "VN"
+  when: "30d"   # backfill nhiều hơn: 30d; chạy daily thì 1d/7d
+  queries:
+    # --------------------------
+    # 1) Query rộng (bắt nhiều nguồn tự nhiên)
+    # --------------------------
+    - name: tourism_risk_wide_1
+      q: '(du lịch OR "khách du lịch" OR "điểm du lịch") (lừa đảo OR "chặt chém" OR tai nạn OR cháy OR "ngộ độc" OR lũ OR sạt lở OR bão OR "mất an ninh" OR cướp giật)'
+    - name: tourism_risk_wide_2
+      q: '("tour" OR "homestay" OR "khách sạn" OR "nhà nghỉ" OR "bãi biển") (cháy OR tai nạn OR "mất an toàn" OR "đình chỉ" OR "xử phạt")'
+    - name: tourism_context_negative_pool
+      q: '(du lịch OR "khách du lịch" OR "điểm đến") -("lừa đảo" OR "chặt chém" OR tai nạn OR cháy OR lũ OR sạt lở OR bão OR "ngộ độc")'
+
+    # --------------------------
+    # 2) Nhóm báo lớn (site targeting)
+    # --------------------------
+    - name: sites_major_01
+      q: '(du lịch OR "khách du lịch") (lừa đảo OR "chặt chém" OR tai nạn OR cháy OR lũ OR sạt lở OR bão) (site:vnexpress.net OR site:tuoitre.vn OR site:thanhnien.vn OR site:dantri.com.vn)'
+    - name: sites_major_02
+      q: '(du lịch OR "khách du lịch") (lừa đảo OR "chặt chém" OR tai nạn OR cháy OR lũ OR sạt lở OR bão) (site:vietnamnet.vn OR site:vov.vn OR site:vtv.vn OR site:nld.com.vn)'
+    - name: sites_major_03
+      q: '(du lịch OR "khách du lịch") (lừa đảo OR "chặt chém" OR tai nạn OR cháy OR lũ OR sạt lở OR bão) (site:laodong.vn OR site:plo.vn OR site:tienphong.vn OR site:congluan.vn)'
+
+    # --------------------------
+    # 3) Nhóm “công an / chính thống” (thường RSS không có hoặc khó)
+    # --------------------------
+    - name: sites_security_01
+      q: '(du lịch OR "khách du lịch" OR "cơ sở lưu trú") (lừa đảo OR "chiếm đoạt" OR "mạo danh" OR "chặt chém" OR cướp OR trộm OR "gây rối") (site:cand.com.vn OR site:congan.com.vn OR site:bocongan.gov.vn)'
+    - name: sites_gov_01
+      q: '(du lịch OR "khách du lịch") (xử phạt OR "đình chỉ" OR "kiểm tra" OR "vi phạm") (site:chinhphu.vn OR site:baochinhphu.vn OR site:mic.gov.vn OR site:moh.gov.vn)'
+
+    # --------------------------
+    # 4) Nhóm địa phương / tổng hợp (bắt nhiều báo tỉnh)
+    # --------------------------
+    - name: sites_local_01
+      q: '(du lịch OR "khách du lịch") (tai nạn OR cháy OR lũ OR sạt lở OR bão OR "ngộ độc") (site:baodautu.vn OR site:baoxaydung.com.vn OR site:baogiaothong.vn)'
+    - name: sites_local_02
+      q: '(du lịch OR "khách du lịch") (lừa đảo OR "chặt chém" OR "mất an ninh") (site:baomoi.com OR site:znews.vn OR site:vietnamplus.vn)'
+
+    # --------------------------
+    # 5) Theo điểm đến hot (đẩy coverage tỉnh/POI)
+    # --------------------------
+    - name: places_hot_01
+      q: '(Phú Quốc OR Nha Trang OR Đà Lạt OR Sa Pa OR Hạ Long OR Hội An OR Đà Nẵng) (lừa đảo OR "chặt chém" OR tai nạn OR cháy OR lũ OR sạt lở OR bão OR "ngộ độc")'
+    - name: places_hot_02
+      q: '(Hà Nội OR TP.HCM OR "Thành phố Hồ Chí Minh" OR Huế OR Quảng Ninh OR Khánh Hòa) ("khách du lịch" OR du lịch) (cướp OR trộm OR "mất an toàn" OR "lừa đảo")'

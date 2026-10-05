@@ -1,0 +1,239 @@
+version: "1.0"
+
+rss_sources:
+
+  # =====================================================
+  # 1) Báo lớn – trung ương (ổn định, ít rác)
+  # =====================================================
+  - name: vnexpress_du_lich
+    url: "https://vnexpress.net/rss/du-lich.rss"
+
+  - name: vnexpress_thoi_su
+    url: "https://vnexpress.net/rss/thoi-su.rss"
+
+  - name: dantri_du_lich
+    url: "https://dantri.com.vn/rss/du-lich.rss"
+
+
+  - name: dantri_xa_hoi
+    url: "https://dantri.com.vn/rss/xa-hoi.rss"
+
+  - name: thanhnien_du_lich
+    url: "https://thanhnien.vn/rss/du-lich.rss"
+
+  - name: thanhnien_thoi_su
+    url: "https://thanhnien.vn/rss/thoi-su.rss"
+
+  - name: tuoitre_du_lich
+    url: "https://tuoitre.vn/rss/du-lich.rss"
+
+  - name: tuoitre_thoi_su
+    url: "https://tuoitre.vn/rss/thoi-su.rss"
+
+  - name: vietnamnet_du_lich
+    url: "https://vietnamnet.vn/rss/du-lich.rss"
+
+  - name: vietnamnet_thoi_su
+    url: "https://vietnamnet.vn/rss/thoi-su.rss"
+
+  - name: vtv_thoi_su
+    url: "https://vtv.vn/rss/thoi-su.rss"
+
+  - name: vov_du_lich
+    url: "https://vov.vn/rss/du-lich.rss"
+
+  - name: nld_du_lich
+    url: "https://nld.com.vn/rss/du-lich.rss"
+
+  - name: plo_xa_hoi
+    url: "https://plo.vn/rss/xa-hoi.rss"
+
+
+  # =====================================================
+  # 2) Báo pháp luật – an ninh – tai nạn (rất nhiều risk)
+  # =====================================================
+  - name: cand
+    url: "https://cand.com.vn/rss/"
+
+  - name: congan_hcm
+    url: "https://congan.com.vn/rss/"
+
+  - name: congan_danang
+    url: "https://cadn.com.vn/rss/"
+
+  - name: plo_phap_luat
+    url: "https://plo.vn/rss/phap-luat.rss"
+
+  - name: laodong_xa_hoi
+    url: "https://laodong.vn/rss/xa-hoi.rss"
+
+  - name: tienphong_xa_hoi
+    url: "https://tienphong.vn/rss/xa-hoi.rss"
+
+  - name: baogiaothong
+    url: "https://baogiaothong.vn/rss/thoi-su.rss"
+
+  - name: baoxaydung
+    url: "https://baoxaydung.com.vn/rss/thoi-su.rss"
+
+
+  # =====================================================
+  # 3) Báo tổng hợp / online news (rất nhiều bài)
+  # =====================================================
+  - name: baomoi
+    url: "https://baomoi.com/rss/trang-chu.rss"
+
+  - name: znews
+    url: "https://znews.vn/rss/thoi-su.rss"
+
+  - name: vietnamplus
+    url: "https://www.vietnamplus.vn/rss/xa-hoi.rss"
+
+  - name: cafef_tieu_dung
+    url: "https://cafef.vn/rss/doi-song.rss"
+
+  - name: kenh14_doi_song
+    url: "https://kenh14.vn/rss/doi-song.rss"
+
+  - name: soha_xa_hoi
+    url: "https://soha.vn/rss/xa-hoi.rss"
+
+
+  # =====================================================
+  # 4) Báo địa phương – DU LỊCH / XÃ HỘI
+  # (nguồn chính để lên số lượng 1000+)
+  # =====================================================
+  - name: baokhanhhoa
+    url: "https://baokhanhhoa.vn/rss/du-lich.rss"
+
+  - name: baolamdong
+    url: "https://baolamdong.vn/rss/du-lich.rss"
+
+  - name: baoquangninh
+    url: "https://baoquangninh.vn/rss/du-lich.rss"
+
+  - name: baothanhhoa
+    url: "https://baothanhhoa.vn/rss/du-lich.rss"
+
+  - name: baodaklak
+    url: "https://baodaklak.vn/rss/du-lich.rss"
+
+  - name: baophuyen
+    url: "https://baophuyen.vn/rss/du-lich.rss"
+
+  - name: baoninhthuan
+    url: "https://baoninhthuan.com.vn/rss/du-lich.rss"
+
+  - name: baobinhthuan
+    url: "https://baobinhthuan.com.vn/rss/du-lich.rss"
+
+  - name: baobariavungtau
+    url: "https://baobariavungtau.com.vn/rss/du-lich.rss"
+
+  - name: baolaocai
+    url: "https://baolaocai.vn/rss/du-lich.rss"
+
+  - name: baolaichau
+    url: "https://baolaichau.vn/rss/du-lich.rss"
+
+  - name: baoyenbai
+    url: "https://baoyenbai.vn/rss/du-lich.rss"
+
+  - name: baolangson
+    url: "https://baolangson.vn/rss/du-lich.rss"
+
+  - name: baotuyenquang
+    url: "https://baotuyenquang.com.vn/rss/du-lich.rss"
+
+  - name: baophutho
+    url: "https://baophutho.vn/rss/du-lich.rss"
+
+  - name: baonamdinh
+    url: "https://baonamdinh.vn/rss/du-lich.rss"
+
+  - name: baothaiBinh
+    url: "https://baothaibinh.com.vn/rss/du-lich.rss"
+
+  - name: baonghean
+    url: "https://baonghean.vn/rss/du-lich.rss"
+
+  - name: baohatinh
+    url: "https://baohatinh.vn/rss/du-lich.rss"
+
+  - name: baoquangtri
+    url: "https://baoquangtri.vn/rss/du-lich.rss"
+
+  - name: baothuathienhue
+    url: "https://baothuathienhue.vn/rss/du-lich.rss"
+
+  - name: baoquangnam
+    url: "https://baoquangnam.vn/rss/du-lich.rss"
+
+  - name: baoquangngai
+    url: "https://baoquangngai.vn/rss/du-lich.rss"
+
+  - name: baobinhdinh
+    url: "https://baobinhdinh.vn/rss/du-lich.rss"
+
+  - name: baogialai
+    url: "https://baogialai.com.vn/rss/du-lich.rss"
+
+  - name: baokontum
+    url: "https://baokontum.com.vn/rss/du-lich.rss"
+
+  - name: baodongnai
+    url: "https://baodongnai.com.vn/rss/du-lich.rss"
+
+  - name: baotayninh
+    url: "https://baotayninh.vn/rss/du-lich.rss"
+
+  - name: baolongan
+    url: "https://baolongan.vn/rss/du-lich.rss"
+
+  - name: baodongthap
+    url: "https://baodongthap.vn/rss/du-lich.rss"
+
+  - name: baocamau
+    url: "https://baocamau.vn/rss/du-lich.rss"
+
+  - name: baosoctrang
+    url: "https://baosoctrang.org.vn/rss/du-lich.rss"
+
+  - name: baotrvinh
+    url: "https://baotravinh.vn/rss/du-lich.rss"
+
+  - name: baobaclieu
+    url: "https://baobaclieu.vn/rss/du-lich.rss"
+
+  - name: baohaugiang
+    url: "https://baohaugiang.com.vn/rss/du-lich.rss"
+
+  - name: baokiengiang
+    url: "https://baokiengiang.vn/rss/du-lich.rss"
+
+  - name: baocantho
+    url: "https://baocantho.com.vn/rss/du-lich.rss"
+
+
+  # =====================================================
+  # 5) Blog / travel / lifestyle (noise cao nhưng giúp coverage)
+  # =====================================================
+  - name: ivivu_blog
+    url: "https://www.ivivu.com/blog/feed/"
+
+  - name: mytour_blog
+    url: "https://www.mytour.vn/blog/feed/"
+
+  - name: traveloka_blog
+    url: "https://www.traveloka.com/vi-vn/explore/feed"
+
+  - name: klook_blog
+    url: "https://www.klook.com/vi/blog/feed/"
+
+  - name: dulichvietnam
+    url: "https://dulichvietnam.com.vn/rss"
+
+notes:
+  - "Nguồn địa phương + báo tổng hợp là chìa khóa để lên 1000+ bài/ngày."
+  - "Google News RSS sẽ bù cho site không có RSS hoặc RSS nghèo."
+  - "Noise xử lý bằng keyword + model, không xử lý ở crawl."
