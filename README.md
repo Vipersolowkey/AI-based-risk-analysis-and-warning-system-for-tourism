@@ -2,7 +2,7 @@
 
 TravelShield adds private, immutable trip assessment receipts with wallet-signed Solana devnet anchoring and server-side transaction verification. See [product delivery and runbook](TRAVELSHIELD_DELIVERY.md) for the complete flow and deployment requirements.
 
-[![CI](https://github.com/Vipersolowkey/travelshield-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/Vipersolowkey/travelshield-ai/actions/workflows/ci.yml)
+[![CI](https://github.com/Vipersolowkey/AI-based-risk-analysis-and-warning-system-for-tourism/actions/workflows/ci.yml/badge.svg)](https://github.com/Vipersolowkey/AI-based-risk-analysis-and-warning-system-for-tourism/actions/workflows/ci.yml)
 
 Based on [Phuthanh123456's tourism risk analysis system](https://github.com/Phuthanh123456/AI-based-risk-analysis-and-warning-system-for-tourism). Original commit history and attribution are preserved. TravelShield-specific changes are maintained in this repository.
 
