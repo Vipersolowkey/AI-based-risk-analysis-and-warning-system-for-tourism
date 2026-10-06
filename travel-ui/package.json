@@ -16,6 +16,7 @@
     "@mapbox/polyline": "^1.2.1",
     "@mui/icons-material": "^9.4.0",
     "@mui/material": "^9.4.0",
+    "@solana/web3.js": "^1.98.4",
     "framer-motion": "^12.35.2",
     "leaflet": "^1.9.4",
     "leaflet.heat": "^0.2.0",

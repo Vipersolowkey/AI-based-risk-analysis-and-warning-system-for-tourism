@@ -26,7 +26,7 @@ import traceback
 from html import unescape
 from urllib.parse import urlparse
 from contextlib import asynccontextmanager
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime, timezone
 from typing import Optional, Dict
 from concurrent.futures import ThreadPoolExecutor
 
@@ -72,6 +72,7 @@ from src.integrations.traffic.serpapi_service import (
 from src.api.db import init_db, save_trip_history, list_trip_history, delete_trip_history
 from src.api.auth import auth_router, get_current_user, get_current_user_optional
 from src.api.notifications import notification_router
+from src.api.decision import validate_departure, departure_weather, explain
 
 # ============================================================
 # Thread pool for parallel I/O in async endpoints
@@ -147,10 +148,21 @@ def _sanitize_for_json(obj):
 async def lifespan(_app: FastAPI):
     load_weather_model()
     init_database()
-    yield
+    from src.api.news_refresh import init_news
+    from src.api.watches import init_watches
+    from src.api.background import background_loop
+    init_news(); init_watches()
+    worker = asyncio.create_task(background_loop()) if os.getenv('BACKGROUND_JOBS_ENABLED', 'true').lower() == 'true' else None
+    try:
+        yield
+    finally:
+        if worker:
+            worker.cancel()
+            from contextlib import suppress
+            with suppress(asyncio.CancelledError): await worker
 
 
-app = FastAPI(title="Vietnam Travel Risk API", version="2.5", lifespan=lifespan)
+app = FastAPI(title="TravelShield API", version="3.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -523,6 +535,7 @@ async def trip_check(
     lat: str = Query(...),
     lon: str = Query(...),
     trip_purpose: Optional[str] = Query("standard", description="Trip purpose: standard, dating, family, adventure, solo"),
+    departure_date: Optional[date] = Query(None),
     current_user: Optional[dict] = Depends(get_current_user_optional),
 ):
     import urllib.parse
@@ -532,6 +545,7 @@ async def trip_check(
         # ---- Robust input parsing ----
         destination = urllib.parse.unquote(destination).strip()
         trip_purpose = (trip_purpose or "standard").strip().lower()
+        validate_departure(departure_date)
 
         try:
             lat_f = float(lat.replace(",", "."))
@@ -543,11 +557,14 @@ async def trip_check(
 
         # --- Check cache first ---
         cache_key = _trip_cache_key(destination, lat_f, lon_f, trip_purpose)
+        from src.api.news_refresh import news_revision
+        cache_key += f"|{departure_date or ''}|{news_revision()}"
         cached = _trip_cache_get(cache_key)
         if cached:
+            cached = dict(cached)
             if current_user:
                 try:
-                    save_trip_history(current_user["id"], destination, lat_f, lon_f, trip_purpose, cached)
+                    cached["history_id"] = save_trip_history(current_user["id"], destination, lat_f, lon_f, trip_purpose, cached)
                 except Exception as e:
                     print(f"[/trip] WARNING: failed to save cached trip history: {e}")
             return _safe_json_response({**cached, "_cached": True})
@@ -714,6 +731,13 @@ async def trip_check(
         )
 
         # Routing providers are optional. Weather and news remain useful if they fail.
+        current_weather = weather_info
+        if departure_date:
+            try:
+                weather_info = await loop.run_in_executor(_executor, departure_weather,
+                    dest_name, float(dest_lat), float(dest_lon), prov, trip_purpose, departure_date)
+            except Exception:
+                weather_info = {"error": "Không lấy được dự báo cho ngày khởi hành.", "date": departure_date.isoformat()}
         if not isinstance(traffic, dict) or not traffic or traffic.get("error"):
             traffic = unavailable_route()
         if traffic.get("route_available") is not False:
@@ -767,6 +791,9 @@ async def trip_check(
         tth = format_minutes_human(tt)
 
         result = {
+            "assessed_at": datetime.now(timezone.utc).isoformat(),
+            "departure_date": departure_date.isoformat() if departure_date else None,
+            "current_weather": current_weather,
             "from": {"lat": lat_f, "lon": lon_f},
             "to": {
                 "query": destination, "name": dest_name,
@@ -815,17 +842,18 @@ async def trip_check(
 
         # --- Sanitize numpy/pandas types for JSON serialization ---
         result = _sanitize_for_json(result)
+        result["explanation"] = explain(result)
 
         # --- Save to trip history if logged in (never let a DB hiccup break /trip) ---
         if current_user:
             try:
-                save_trip_history(current_user["id"], destination, lat_f, lon_f, trip_purpose, result)
+                result["history_id"] = save_trip_history(current_user["id"], destination, lat_f, lon_f, trip_purpose, result)
             except Exception as e:
                 print(f"[/trip] WARNING: failed to save trip history: {e}")
 
         # --- Save to cache ---
         if result["traffic"]["route_available"]:
-            _trip_cache_set(cache_key, result)
+            _trip_cache_set(cache_key, {k: v for k, v in result.items() if k != "history_id"})
 
         # Return via _safe_json_response to completely bypass FastAPI's jsonable_encoder
         return _safe_json_response(result)
@@ -1008,6 +1036,12 @@ def map_points():
 # ============================================================
 app.include_router(auth_router)
 app.include_router(notification_router)
+from src.api.news_refresh import news_router
+app.include_router(news_router)
+from src.api.watches import watch_router
+app.include_router(watch_router)
+from src.api.receipts import receipt_router
+app.include_router(receipt_router)
 
 
 @app.get("/api/trip-history")

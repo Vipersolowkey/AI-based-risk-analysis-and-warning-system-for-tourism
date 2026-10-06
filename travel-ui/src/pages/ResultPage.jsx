@@ -12,9 +12,10 @@ import WbCloudyOutlinedIcon from "@mui/icons-material/WbCloudyOutlined";
 import { useTravel } from "../portal/TravelContext";
 import { dateLabel, getVerdict } from "../portal/format";
 import { DataState, MetricCard, PageIntro, SourceNote } from "../portal/UiPrimitives";
+import RiskReceipt from "../components/RiskReceipt";
 
 export default function ResultPage() {
-  const { tripRes, destination, originName, departureDate, tripCheckedAt, forecastData } = useTravel();
+  const { tripRes, destination, originName, departureDate, tripCheckedAt, forecastData, session } = useTravel();
   if (!tripRes) return <div className="portal-page"><PageIntro eyebrow="Kết quả rủi ro" title="Nhận định chuyến đi" /><DataState title="Chưa có đánh giá chuyến đi" description="Hãy chọn hành trình và nhấn Đánh giá chuyến đi trước." /></div>;
 
   const verdict = getVerdict(tripRes.recommendation);
@@ -45,6 +46,7 @@ export default function ResultPage() {
       </Stack>
       <SourceNote>Kết luận GO/CAUTION/DON'T GO do API chuyến đi trả về theo điều kiện lúc tra cứu. Dự báo ngày đi là thông tin bổ sung, có thể thay đổi. Lý do bên trên tóm tắt các chỉ số có thể kiểm tra. Điểm hiển thị là điểm cao nhất giữa thời tiết hiện tại, dự báo ngày đi và tin tức còn mới; không phải điểm tổng hợp hay xác suất an toàn. Kết quả tra cứu lúc {tripCheckedAt ? new Date(tripCheckedAt).toLocaleString("vi-VN") : "không rõ"}.</SourceNote>
     </Box>
+    <RiskReceipt key={tripRes.history_id || 'unsaved'} tripId={tripRes.history_id} token={session?.user?.token} />
     <div className="portal-grid">
       <MetricCard to="/weather" icon={<WbCloudyOutlinedIcon />} title="Thời tiết" value={weatherScore != null ? `${Number(weatherScore).toFixed(1)}/10` : "Chưa có"} helper={travelDay ? `Điểm cao hơn giữa hiện tại và dự báo ${dateLabel(departureDate)}` : "Dữ liệu hiện tại; ngày đi chưa có dự báo tương ứng"} tone={weatherScore >= 7 ? "danger" : weatherScore >= 4 ? "caution" : "default"} />
       <MetricCard to="/traffic" icon={<AltRouteOutlinedIcon />} title="Giao thông" value={tripRes.traffic?.distance_km != null ? `${tripRes.traffic.distance_km} km` : "Chưa có"} helper={tripRes.traffic?.route_available === false ? "Chưa lấy được tuyến đường" : tripRes.traffic?.traffic_available === false ? "Thời gian chỉ là ước tính" : "Mở để xem tình trạng tuyến đường"} />

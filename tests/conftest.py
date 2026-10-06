@@ -8,6 +8,7 @@ import pytest
 _tmp_db_fd, _tmp_db_path = tempfile.mkstemp(suffix=".sqlite")
 os.close(_tmp_db_fd)
 os.environ["DB_PATH_OVERRIDE"] = _tmp_db_path
+os.environ['BACKGROUND_JOBS_ENABLED'] = 'false'
 
 from fastapi.testclient import TestClient
 

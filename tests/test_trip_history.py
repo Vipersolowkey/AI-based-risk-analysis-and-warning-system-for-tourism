@@ -47,6 +47,8 @@ def test_cached_trip_is_also_saved_to_history(client, auth_headers):
     second = _run_trip(client, headers=auth_headers, destination="Đà Lạt cache history test")
     assert first.status_code == second.status_code == 200
     assert second.json()["_cached"] is True
+    assert first.json()["history_id"] != second.json()["history_id"]
+    assert first.json()["assessed_at"] == second.json()["assessed_at"]
     rows = client.get("/api/trip-history", headers=auth_headers).json()["results"]
     assert len([row for row in rows if row["destination"] == "Đà Lạt cache history test"]) == 2
 

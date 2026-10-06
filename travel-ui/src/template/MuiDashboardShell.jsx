@@ -90,7 +90,7 @@ function Brand() {
   return (
     <Stack component={Link} to="/plan" className="portal-brand" direction="row" alignItems="center" spacing={1.25}>
       <span className="portal-brand-mark"><ShieldOutlinedIcon fontSize="small" /></span>
-      <Box><Typography component="strong" variant="subtitle2">Vietnam Travel Risk</Typography><Typography component="span" variant="caption">Thông tin cho chuyến đi</Typography></Box>
+      <Box><Typography component="strong" variant="subtitle2">TravelShield AI</Typography><Typography component="span" variant="caption">Thông tin cho chuyến đi</Typography></Box>
     </Stack>
   );
 }

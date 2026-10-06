@@ -227,7 +227,7 @@ export function LandingPage({ onGoToLogin }) {
             animationDelay: "0.3s",
           }}
         >
-          Vietnam Travel Risk{" "}
+          TravelShield{" "}
           <span
             style={{
               background: "linear-gradient(135deg, #2563EB, #60A5FA)",
@@ -341,7 +341,7 @@ export function LandingPage({ onGoToLogin }) {
           animationDelay: "1.3s",
         }}
       >
-        © 2026 Vietnam Travel Risk AI — Final Project
+        © 2026 TravelShield AI
       </div>
     </div>
   );

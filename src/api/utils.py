@@ -153,7 +153,7 @@ def _news_predictions_files() -> List[str]:
 def _attach_news_predictions(df: pd.DataFrame, paths: List[str]) -> pd.DataFrame:
     existing = pd.to_numeric(df.get("p_risk_any"), errors="coerce") if "p_risk_any" in df else pd.Series(float("nan"), index=df.index)
     sources = pd.Series("rules", index=df.index)
-    sources.loc[existing.notna()] = "features_embedded"
+    sources.loc[existing.notna()] = df.loc[existing.notna(), 'news_model_source'] if 'news_model_source' in df else "features_embedded"
     for path in paths:
         predictions = safe_read_jsonl(path)
         probability_by_id = {}
@@ -190,12 +190,14 @@ def load_features_df(force: bool = False) -> pd.DataFrame:
         raise HTTPException(status_code=404, detail=f"Missing features file: {FEATURES_PATH}")
 
     predictions_paths = _news_predictions_files()
+    from src.api.news_refresh import news_revision, live_rows
     mtime = (os.path.getmtime(FEATURES_PATH),
-             tuple((path, os.path.getmtime(path)) for path in predictions_paths))
+             tuple((path, os.path.getmtime(path)) for path in predictions_paths), news_revision())
     if (not force) and (_df_cache is not None) and (_df_mtime == mtime):
         return _df_cache
 
     rows = safe_read_jsonl(FEATURES_PATH)
+    rows.extend(live_rows())
     if not rows:
         raise HTTPException(status_code=400, detail="No valid JSON rows in features JSONL.")
 

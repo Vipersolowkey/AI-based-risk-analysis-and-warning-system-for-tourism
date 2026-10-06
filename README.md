@@ -1,10 +1,16 @@
-# Vietnam Travel Risk AI — Full Documentation
+# TravelShield AI — Vietnam Travel Risk
 
-[![CI](https://github.com/YOUR-USERNAME/YOUR-REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR-USERNAME/YOUR-REPO/actions/workflows/ci.yml)
+TravelShield adds private, immutable trip assessment receipts with wallet-signed Solana devnet anchoring and server-side transaction verification. See [product delivery and runbook](TRAVELSHIELD_DELIVERY.md) for the complete flow and deployment requirements.
+
+[![CI](https://github.com/Vipersolowkey/travelshield-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/Vipersolowkey/travelshield-ai/actions/workflows/ci.yml)
+
+Based on [Phuthanh123456's tourism risk analysis system](https://github.com/Phuthanh123456/AI-based-risk-analysis-and-warning-system-for-tourism). Original commit history and attribution are preserved. TravelShield-specific changes are maintained in this repository.
+
+This snapshot is work in progress, not a production release. See [known QA blockers](QA_STATUS.md) before deployment or hackathon demonstrations.
 
 ## 🌐 Live Demo
 
-**👉 [Try the app now →](https://travel-ui-hazel.vercel.app)** (powered by Vercel + Railway)
+**[Upstream demo](https://travel-ui-hazel.vercel.app)** (Vercel + Railway). This is the original project's demo; it does not demonstrate the new TravelShield features in this repository.
 
 - **Register** with any email (e.g., `demo@example.com`)
 - **Get GPS** to see risk around your location

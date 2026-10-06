@@ -112,14 +112,14 @@ def save_trip_history(
     lon: Optional[float],
     trip_purpose: Optional[str],
     result: Dict[str, Any],
-) -> None:
+) -> int:
     risk_score = (result.get("risk") or {}).get("risk_score")
     weather = result.get("weather") or {}
     weather_risk_score = weather.get("adjusted_risk_score", weather.get("risk_score"))
     recommendation = result.get("recommendation")
     conn = get_conn()
     try:
-        conn.execute(
+        cur = conn.execute(
             """INSERT INTO trip_history
                (user_id, destination, lat, lon, trip_purpose, risk_score,
                 weather_risk_score, recommendation, result_json)
@@ -130,6 +130,7 @@ def save_trip_history(
             ),
         )
         conn.commit()
+        return cur.lastrowid
     finally:
         conn.close()
 

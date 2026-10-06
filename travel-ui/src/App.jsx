@@ -501,6 +501,7 @@ export default function App() {
         `/trip?destination=${encodeURIComponent(destination)}` +
         `&lat=${encodeURIComponent(String(userPos.lat))}` +
         `&lon=${encodeURIComponent(String(userPos.lon))}`;
+      url += `&departure_date=${encodeURIComponent(departureDate)}`;
       if (activePurpose) {
         url += `&trip_purpose=${encodeURIComponent(activePurpose)}`;
       }
